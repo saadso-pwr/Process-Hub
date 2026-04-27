@@ -1,65 +1,189 @@
-import Image from "next/image";
+"use client";
 
-export default function Home() {
+import { useState } from "react";
+import { ProcessHeader } from "@/components/ProcessHeader";
+import { CategoryFilter } from "@/components/CategoryFilter";
+import { ValueStreamMap } from "@/components/ValueStreamMap";
+import { AIDueDiligenceMap } from "@/components/AIDueDiligenceMap";
+import { PowerAIMap } from "@/components/PowerAIMap";
+import { categories } from "@/data/categories";
+
+const BRAND_BLUE = "#00037C";
+
+/* ─── See All tree ─── */
+function AllCategoriesTree({
+  onSelect,
+}: {
+  onSelect: (categoryId: string, subCategoryId: string) => void;
+}) {
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
+    <div className="py-6 flex flex-col gap-6">
+      {categories.map((cat) => {
+        const anyContent = cat.hasContent || cat.subCategories.some((s) => s.hasContent);
+        return (
+          <div key={cat.id} style={{ opacity: anyContent ? 1 : 0.4 }}>
+            {/* Category heading */}
+            <div className="flex items-center gap-3 mb-2">
+              <div className="w-2 h-2 rounded-full shrink-0"
+                style={{ backgroundColor: anyContent ? BRAND_BLUE : "#ccc" }} />
+              <p className="text-[15px] font-bold text-black" style={{ fontFamily: "'Manrope', sans-serif" }}>
+                {cat.label}
+              </p>
+              {anyContent && (
+                <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full"
+                  style={{ fontFamily: "'Manrope', sans-serif", backgroundColor: `${BRAND_BLUE}15`, color: BRAND_BLUE, letterSpacing: "0.05em" }}>
+                  LIVE
+                </span>
+              )}
+            </div>
+
+            {/* Sub-categories */}
+            <div className="ml-5 flex flex-col gap-0 border-l-2 pl-4" style={{ borderColor: `${BRAND_BLUE}25` }}>
+              {cat.subCategories.map((sub, i) => (
+                <button
+                  key={sub.id}
+                  onClick={() => onSelect(cat.id, sub.id)}
+                  className="group flex items-center gap-3 py-2.5 text-left w-full transition-all duration-150"
+                  style={{
+                    borderBottom: i < cat.subCategories.length - 1 ? "1px solid #f0f0f0" : "none",
+                    opacity: sub.hasContent ? 1 : 0.45,
+                  }}
+                >
+                  <svg className="shrink-0 opacity-30 group-hover:opacity-100 transition-opacity"
+                    width="14" height="14" viewBox="0 0 24 24" fill="none">
+                    <path d="M9 5l7 7-7 7" stroke={BRAND_BLUE} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                  <span className="text-[13px] group-hover:underline"
+                    style={{ fontFamily: "'Manrope', sans-serif", fontWeight: 400, color: sub.hasContent ? "#222" : "#999" }}>
+                    {sub.label}
+                  </span>
+                  {sub.hasContent && (
+                    <span className="ml-1 w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: BRAND_BLUE }} />
+                  )}
+                </button>
+              ))}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/* ─── page ─── */
+export default function Home() {
+  const [showAll,             setShowAll]             = useState(true);
+  const [activeCategoryId,    setActiveCategoryId]    = useState<string | null>(null);
+  const [activeSubCategoryId, setActiveSubCategoryId] = useState<string | null>(null);
+
+  const activeCategory    = categories.find((c) => c.id === activeCategoryId) ?? null;
+  const activeSubCategory = activeCategory?.subCategories.find((s) => s.id === activeSubCategoryId) ?? null;
+  const hasSubcategories  = (activeCategory?.subCategories.length ?? 0) > 0;
+
+  /* pill handlers */
+  const handleCategoryClick = (id: string) => {
+    if (activeCategoryId === id && !showAll) {
+      setActiveCategoryId(null);
+      setActiveSubCategoryId(null);
+    } else {
+      setActiveCategoryId(id);
+      setActiveSubCategoryId(null);
+    }
+    setShowAll(false);
+  };
+
+  const handleSubCategoryClick = (id: string) => {
+    setActiveSubCategoryId(activeSubCategoryId === id ? null : id);
+    setShowAll(false);
+  };
+
+  const handleSeeAll = () => {
+    setShowAll(true);
+    setActiveCategoryId(null);
+    setActiveSubCategoryId(null);
+  };
+
+  /* tree selection — sets both category + subcategory and syncs pills */
+  const handleTreeSelect = (categoryId: string, subCategoryId: string) => {
+    setActiveCategoryId(categoryId);
+    setActiveSubCategoryId(subCategoryId);
+    setShowAll(false);
+  };
+
+  return (
+    <div className="min-h-screen bg-white flex flex-col">
+      <ProcessHeader />
+
+      <CategoryFilter
+        activeCategoryId={activeCategoryId}
+        activeSubCategoryId={activeSubCategoryId}
+        showAll={showAll}
+        onCategoryClick={handleCategoryClick}
+        onSubCategoryClick={handleSubCategoryClick}
+        onSeeAll={handleSeeAll}
+      />
+
+      <div className="h-[3px]" style={{ backgroundColor: BRAND_BLUE }} />
+
+      <div className="flex-1 px-8 py-6">
+
+        {/* See All */}
+        {showAll && <AllCategoriesTree onSelect={handleTreeSelect} />}
+
+        {/* Category selected, awaiting subcategory */}
+        {!showAll && activeCategory && hasSubcategories && !activeSubCategory && (
+          <div className="flex flex-col items-center justify-center gap-3 py-24">
+            <div className="w-16 h-16 rounded-full flex items-center justify-center"
+              style={{ backgroundColor: `${BRAND_BLUE}15` }}>
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="none">
+                <path d="M9 5l7 7-7 7" stroke={BRAND_BLUE} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </div>
+            <p className="text-[18px] font-bold text-black" style={{ fontFamily: "'Manrope', sans-serif" }}>
+              {activeCategory.label}
+            </p>
+            <p className="text-[14px]" style={{ fontFamily: "'Manrope', sans-serif", color: "#666" }}>
+              Select a sub-category to view the process map.
+            </p>
+          </div>
+        )}
+
+        {/* Subcategory selected */}
+        {!showAll && activeSubCategory && (
+          <div>
+            <p className="text-[12px] mb-6" style={{ fontFamily: "'Manrope', sans-serif", color: "#999" }}>
+              {activeCategory?.label}
+              <span className="mx-2">›</span>
+              <span style={{ color: BRAND_BLUE, fontWeight: 700 }}>{activeSubCategory.label}</span>
+            </p>
+
+            {activeSubCategory.id === "flash-reports" ? (
+              <ValueStreamMap />
+            ) : activeSubCategory.id === "ai-it-due-diligence" ? (
+              <AIDueDiligenceMap />
+            ) : activeSubCategory.id === "power-ai" ? (
+              <PowerAIMap />
+            ) : (
+              <div className="flex flex-col items-center justify-center gap-3 py-24">
+                <div className="w-16 h-16 rounded-full flex items-center justify-center"
+                  style={{ backgroundColor: `${BRAND_BLUE}15` }}>
+                  <svg width="28" height="28" viewBox="0 0 24 24" fill="none">
+                    <rect x="3" y="3" width="18" height="18" rx="2" stroke={BRAND_BLUE} strokeWidth="2" />
+                    <path d="M3 9h18M9 21V9" stroke={BRAND_BLUE} strokeWidth="2" />
+                  </svg>
+                </div>
+                <p className="text-[18px] font-bold" style={{ fontFamily: "'Manrope', sans-serif", color: BRAND_BLUE }}>
+                  {activeSubCategory.label}
+                </p>
+                <p className="text-[14px]" style={{ fontFamily: "'Manrope', sans-serif", color: "#666" }}>
+                  Process map coming soon.
+                </p>
+              </div>
+            )}
+          </div>
+        )}
+
+      </div>
     </div>
   );
 }

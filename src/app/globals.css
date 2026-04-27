@@ -1,26 +1,33 @@
+@import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=Inter+Tight:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Manrope:wght@400;600;700&display=swap');
 @import "tailwindcss";
+
+@keyframes vsm-pop {
+  0%   { opacity: 0; transform: translateY(8px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+.vsm-animate > * { animation: vsm-pop 0.5s cubic-bezier(.2,.8,.2,1) both; }
+.vsm-animate .vsm-c1 { animation-delay: .02s; }
+.vsm-animate .vsm-c2 { animation-delay: .07s; }
+.vsm-animate .vsm-c3 { animation-delay: .12s; }
+.vsm-animate .vsm-c4 { animation-delay: .17s; }
+.vsm-animate .vsm-c5 { animation-delay: .22s; }
+.vsm-animate .vsm-c6 { animation-delay: .27s; }
+.vsm-animate .vsm-c7 { animation-delay: .32s; }
 
 :root {
   --background: #ffffff;
   --foreground: #171717;
+  --brand-blue: #00037C;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+  --color-brand-blue: var(--brand-blue);
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: 'Manrope', sans-serif;
 }
