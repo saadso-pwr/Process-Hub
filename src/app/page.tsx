@@ -6,6 +6,7 @@ import { CategoryFilter } from "@/components/CategoryFilter";
 import { ValueStreamMap } from "@/components/ValueStreamMap";
 import { AIDueDiligenceMap } from "@/components/AIDueDiligenceMap";
 import { PowerAIMap } from "@/components/PowerAIMap";
+import { ConceptualModelMap } from "@/components/ConceptualModelMap";
 import { categories } from "@/data/categories";
 
 const BRAND_BLUE = "#00037C";
@@ -163,6 +164,8 @@ export default function Home() {
               <AIDueDiligenceMap />
             ) : activeSubCategory.id === "power-ai" ? (
               <PowerAIMap />
+            ) : activeSubCategory.id === "conceptual-model" ? (
+              <ConceptualModelMap />
             ) : (
               <div className="flex flex-col items-center justify-center gap-3 py-24">
                 <div className="w-16 h-16 rounded-full flex items-center justify-center"

@@ -77,7 +77,8 @@ export const categories: Category[] = [
     id: "internal-process",
     label: "Internal Process / Products",
     subCategories: [
-      { id: "power-ai", label: "Power AI", hasContent: true },
+      { id: "power-ai",          label: "Power AI",          hasContent: true },
+      { id: "conceptual-model",  label: "Conceptual Model",  hasContent: true },
     ],
   },
 ];
