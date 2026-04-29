@@ -20,7 +20,7 @@ function Header() {
         className="text-black whitespace-nowrap"
         style={{ fontFamily: "'Manrope', sans-serif", fontWeight: 700, fontSize: "28px" }}
       >
-        Offerings Process Maps
+        Process Hub
       </h1>
     </div>
   );
