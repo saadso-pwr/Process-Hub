@@ -149,6 +149,7 @@ type GateData = {
 function GateNode({ data }: NodeProps<Node<GateData>>) {
   const colors = data.variant === "purple" ? PALETTE.build : PALETTE.blue;
   const SIZE = 60;
+  const [hovered, setHovered] = useState(false);
   // Anchor handles on the diamond (top of node) so edges meet the diamond's
   // edges rather than the midpoint of the diamond+label bounding box.
   const h = (top: number, left: number): React.CSSProperties => ({
@@ -167,6 +168,8 @@ function GateNode({ data }: NodeProps<Node<GateData>>) {
       <Handle type="target" position={Position.Left}   id="l"   style={h(SIZE / 2, 0)} />
       <Handle type="source" position={Position.Left}   id="l-s" style={h(SIZE / 2, 0)} />
       <div
+        onMouseEnter={() => setHovered(true)}
+        onMouseLeave={() => setHovered(false)}
         style={{
           width: SIZE,
           fontFamily: FF,
@@ -174,9 +177,22 @@ function GateNode({ data }: NodeProps<Node<GateData>>) {
           flexDirection: "column",
           alignItems: "center",
           gap: 6,
+          cursor: "pointer",
+          transform: hovered ? "translateY(-3px)" : "translateY(0)",
+          transition: "transform 180ms ease-out",
+          willChange: "transform",
         }}
       >
-        <div style={{ width: SIZE, height: SIZE, position: "relative" }}>
+        <div
+          style={{
+            width: SIZE,
+            height: SIZE,
+            position: "relative",
+            transform: hovered ? "scale(1.06)" : "scale(1)",
+            transition: "transform 180ms ease-out, filter 180ms ease-out",
+            filter: hovered ? `drop-shadow(0 6px 12px ${colors.text}55)` : "none",
+          }}
+        >
           <svg width={SIZE} height={SIZE} style={{ display: "block", overflow: "visible" }}>
             {(() => {
               const side = SIZE / Math.SQRT2;
@@ -190,9 +206,10 @@ function GateNode({ data }: NodeProps<Node<GateData>>) {
                   rx={8}
                   ry={8}
                   fill={colors.bg}
-                  stroke={colors.border}
+                  stroke={hovered ? colors.text : colors.border}
                   strokeWidth={1.5}
                   transform={`rotate(45 ${SIZE / 2} ${SIZE / 2})`}
+                  style={{ transition: "stroke 180ms ease-out" }}
                 />
               );
             })()}
@@ -214,6 +231,60 @@ function GateNode({ data }: NodeProps<Node<GateData>>) {
         </span>
       </div>
     </>
+  );
+}
+
+// ── Gate popup: small explanatory card with diamond icon ──
+type GatePopupContent = {
+  title: string;
+  description: string;
+  variant: "purple" | "blue";
+};
+
+function GatePopupNode({ data }: NodeProps<Node<{ popup: GatePopupContent }>>) {
+  const colors = data.popup.variant === "purple" ? PALETTE.build : PALETTE.blue;
+  const ICON = 36;
+  const side = ICON / Math.SQRT2;
+  const offset = (ICON - side) / 2;
+  return (
+    <div
+      style={{
+        width: 340,
+        background: "#fff",
+        border: "1px solid #e4e2da",
+        borderRadius: 14,
+        padding: "20px 22px",
+        display: "flex",
+        flexDirection: "column",
+        gap: 10,
+        fontFamily: FF,
+        boxShadow: "0 12px 32px rgba(0,0,0,0.14), 0 2px 4px rgba(0,0,0,0.06)",
+        boxSizing: "border-box",
+      }}
+    >
+      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+        <svg width={ICON} height={ICON} style={{ display: "block", flexShrink: 0 }}>
+          <rect
+            x={offset}
+            y={offset}
+            width={side}
+            height={side}
+            rx={5}
+            ry={5}
+            fill={colors.bg}
+            stroke={colors.border}
+            strokeWidth={1.5}
+            transform={`rotate(45 ${ICON / 2} ${ICON / 2})`}
+          />
+        </svg>
+        <p style={{ fontWeight: 700, fontSize: 20, color: colors.text, margin: 0, lineHeight: 1.15 }}>
+          {data.popup.title}
+        </p>
+      </div>
+      <p style={{ fontWeight: 400, fontSize: 14, color: "#3f3f38", lineHeight: 1.5, margin: 0 }}>
+        {data.popup.description}
+      </p>
+    </div>
   );
 }
 
@@ -394,6 +465,7 @@ const nodeTypes = {
   container: ContainerNode,
   doc:       DocNode,
   popup:     PopupNode,
+  gatePopup: GatePopupNode,
 };
 
 // ── Layout (Figma "Processframe" coords, 1574×820 design space) ──
@@ -696,24 +768,40 @@ const POPUPS: Record<string, PhasePopup> = {
   },
 };
 
+// Gate popup data
+const GATE_POPUPS: Record<string, GatePopupContent> = {
+  "mvp-gate": {
+    title: "MVP Gate",
+    description: "Executive sponsor and Neos operations co-approve before production migration",
+    variant: "purple",
+  },
+  "golive-gate": {
+    title: "Go-Live Gate",
+    description: "Executive sponsor gives final release approval before users are onboarded",
+    variant: "blue",
+  },
+};
+
 // Popup placement per node (design-space coords; popup is 340px wide)
 const POPUP_POSITIONS: Record<string, { x: number; y: number }> = {
-  intake:      { x: 50,    y: 240 },
-  "mvp-build": { x: 600,   y: 80 },
-  review:      { x: 600,   y: 260 },
-  migration:   { x: 985,   y: 80 },
-  golive:      { x: 380,   y: 260 },
-  operate:     { x: 800,   y: 80 },
-  improve:     { x: 800,   y: 260 },
-  iterate:     { x: 800,   y: 440 },
-  docs:        { x: 200,   y: 360 },
+  intake:        { x: 50,    y: 240 },
+  "mvp-build":   { x: 600,   y: 80 },
+  review:        { x: 600,   y: 260 },
+  migration:     { x: 985,   y: 80 },
+  golive:        { x: 380,   y: 260 },
+  operate:       { x: 800,   y: 80 },
+  improve:       { x: 800,   y: 260 },
+  iterate:       { x: 800,   y: 440 },
+  docs:          { x: 200,   y: 360 },
+  "mvp-gate":    { x: 250,   y: 380 },
+  "golive-gate": { x: 645,   y: 380 },
 };
 
 export function NBSSystemMap() {
   const [openId, setOpenId] = useState<string | null>(null);
 
   const handleNodeClick = useCallback((_e: React.MouseEvent, node: Node) => {
-    if (POPUPS[node.id]) {
+    if (POPUPS[node.id] || GATE_POPUPS[node.id]) {
       setOpenId((prev) => (prev === node.id ? null : node.id));
     } else {
       setOpenId(null);
@@ -724,16 +812,17 @@ export function NBSSystemMap() {
 
   const nodesWithPopup = useMemo(() => {
     if (!openId) return baseNodes;
-    const popup = POPUPS[openId];
     const pos = POPUP_POSITIONS[openId] ?? { x: 0, y: 0 };
-    if (!popup) return baseNodes;
+    const phasePopup = POPUPS[openId];
+    const gatePopup = GATE_POPUPS[openId];
+    if (!phasePopup && !gatePopup) return baseNodes;
     return [
       ...baseNodes,
       {
         id: "__popup__",
-        type: "popup",
+        type: phasePopup ? "popup" : "gatePopup",
         position: pos,
-        data: { popup },
+        data: { popup: phasePopup ?? gatePopup },
         zIndex: 100,
         draggable: false,
         selectable: false,
