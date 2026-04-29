@@ -66,7 +66,7 @@ export const categories: Category[] = [
   },
   {
     id: "erp",
-    label: "ERP / Systems Selection & Implementation",
+    label: "Systems Selection & Implementation",
     subCategories: [
       { id: "erp-advisory",          label: "ERP Advisory & Implementation" },
       { id: "specialized-selection", label: "Specialized System Selection (Non-ERP)" },
