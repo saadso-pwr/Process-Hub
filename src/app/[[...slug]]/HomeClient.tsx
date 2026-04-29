@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { ProcessHeader } from "@/components/ProcessHeader";
 import { CategoryFilter } from "@/components/CategoryFilter";
 import { ValueStreamMap } from "@/components/ValueStreamMap";
@@ -8,6 +8,7 @@ import { AIDueDiligenceMap } from "@/components/AIDueDiligenceMap";
 import { PowerAIMap } from "@/components/PowerAIMap";
 import { ConceptualModelMap } from "@/components/ConceptualModelMap";
 import { NeosIntelligenceMap } from "@/components/NeosIntelligenceMap";
+import { NBSSystemMap } from "@/components/NBSSystemMap";
 import { categories } from "@/data/categories";
 
 const BRAND_BLUE = "#00037C";
@@ -72,44 +73,45 @@ function AllCategoriesTree({
   );
 }
 
-/* ─── page ─── */
-export default function Home() {
-  const [showAll,             setShowAll]             = useState(true);
-  const [activeCategoryId,    setActiveCategoryId]    = useState<string | null>(null);
-  const [activeSubCategoryId, setActiveSubCategoryId] = useState<string | null>(null);
+export function HomeClient({
+  categoryId,
+  subCategoryId,
+}: {
+  categoryId?: string;
+  subCategoryId?: string;
+}) {
+  const router = useRouter();
 
-  const activeCategory    = categories.find((c) => c.id === activeCategoryId) ?? null;
-  const activeSubCategory = activeCategory?.subCategories.find((s) => s.id === activeSubCategoryId) ?? null;
-  const hasSubcategories  = (activeCategory?.subCategories.length ?? 0) > 0;
+  const showAll = !categoryId;
+  const activeCategory = categoryId ? categories.find((c) => c.id === categoryId) ?? null : null;
+  const activeSubCategory = subCategoryId && activeCategory
+    ? activeCategory.subCategories.find((s) => s.id === subCategoryId) ?? null
+    : null;
+  const hasSubcategories = (activeCategory?.subCategories.length ?? 0) > 0;
 
-  /* pill handlers */
   const handleCategoryClick = (id: string) => {
-    if (activeCategoryId === id && !showAll) {
-      setActiveCategoryId(null);
-      setActiveSubCategoryId(null);
+    if (categoryId === id) {
+      router.push("/");
     } else {
-      setActiveCategoryId(id);
-      setActiveSubCategoryId(null);
+      router.push(`/${id}`);
     }
-    setShowAll(false);
   };
 
   const handleSubCategoryClick = (id: string) => {
-    setActiveSubCategoryId(activeSubCategoryId === id ? null : id);
-    setShowAll(false);
+    if (!categoryId) return;
+    if (subCategoryId === id) {
+      router.push(`/${categoryId}`);
+    } else {
+      router.push(`/${categoryId}/${id}`);
+    }
   };
 
   const handleSeeAll = () => {
-    setShowAll(true);
-    setActiveCategoryId(null);
-    setActiveSubCategoryId(null);
+    router.push("/");
   };
 
-  /* tree selection — sets both category + subcategory and syncs pills */
-  const handleTreeSelect = (categoryId: string, subCategoryId: string) => {
-    setActiveCategoryId(categoryId);
-    setActiveSubCategoryId(subCategoryId);
-    setShowAll(false);
+  const handleTreeSelect = (catId: string, subId: string) => {
+    router.push(`/${catId}/${subId}`);
   };
 
   return (
@@ -117,8 +119,8 @@ export default function Home() {
       <ProcessHeader />
 
       <CategoryFilter
-        activeCategoryId={activeCategoryId}
-        activeSubCategoryId={activeSubCategoryId}
+        activeCategoryId={categoryId ?? null}
+        activeSubCategoryId={subCategoryId ?? null}
         showAll={showAll}
         onCategoryClick={handleCategoryClick}
         onSubCategoryClick={handleSubCategoryClick}
@@ -169,6 +171,8 @@ export default function Home() {
               <ConceptualModelMap />
             ) : activeSubCategory.id === "neos-intelligence" ? (
               <NeosIntelligenceMap />
+            ) : activeSubCategory.id === "nbs-system-process" ? (
+              <NBSSystemMap />
             ) : (
               <div className="flex flex-col items-center justify-center gap-3 py-24">
                 <div className="w-16 h-16 rounded-full flex items-center justify-center"

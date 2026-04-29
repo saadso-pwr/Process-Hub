@@ -50,6 +50,7 @@ function AnnotBlock({
   );
 }
 
+
 export function NeosIntelligenceMap() {
   const wrapperRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
@@ -71,7 +72,7 @@ export function NeosIntelligenceMap() {
   }, []);
 
   return (
-    <div ref={wrapperRef} style={{ width: "100%", height: wrapperHeight }}>
+    <div ref={wrapperRef} style={{ position: "relative", width: "100%", height: wrapperHeight }}>
       <div ref={contentRef} style={{
         position: "relative",
         width: DESIGN_WIDTH,
@@ -198,9 +199,9 @@ export function NeosIntelligenceMap() {
             DATA SOURCES
           </p>
           <div style={{ display: "flex", gap: 90, justifyContent: "center" }}>
-            <div style={{ width: 470 }}>
-              <p style={{ fontFamily: FF, fontWeight: 700, fontSize: 33, color: BLUE_ACCENT, margin: 0, marginBottom: 7 }}>Commercial Data</p>
-              <p style={{ fontFamily: FF, fontWeight: 400, fontSize: 24, color: BLUE_MID, margin: 0 }}>CRM • Pipeline • Accounts</p>
+            <div style={{ width: 470, display: "flex", flexDirection: "column", alignItems: "center", gap: 14 }}>
+              <p style={{ fontFamily: FF, fontWeight: 700, fontSize: 33, color: BLUE_ACCENT, margin: 0 }}>Commercial Data</p>
+              <p style={{ fontFamily: FF, fontWeight: 400, fontSize: 24, color: BLUE_MID, margin: 0 }}>CRM • ERP • MES</p>
             </div>
             <div style={{ width: 470 }}>
               <p style={{ fontFamily: FF, fontWeight: 700, fontSize: 33, color: BLUE_ACCENT, margin: 0, marginBottom: 7 }}>Market &amp; Opportunity Intel</p>
@@ -420,6 +421,7 @@ export function NeosIntelligenceMap() {
         </div>
 
       </div>
+
     </div>
   );
 }

@@ -80,6 +80,7 @@ export const categories: Category[] = [
       { id: "power-ai",               label: "Power AI",               hasContent: true },
       { id: "conceptual-model",       label: "Conceptual Model",       hasContent: true },
       { id: "neos-intelligence",      label: "Neos Intelligence",      hasContent: true },
+      { id: "nbs-system-process",     label: "NBS System Process",     hasContent: true },
     ],
   },
 ];
