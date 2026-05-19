@@ -12,6 +12,12 @@ import { NBSSystemMap } from "@/components/NBSSystemMap";
 import { categories } from "@/data/categories";
 
 const BRAND_BLUE = "#00037C";
+const PROCESS_HUB_BASE_PATH = "/process-hub";
+
+function processHubHref(...parts: string[]) {
+  const clean = parts.filter(Boolean).map((part) => part.replace(/^\/+|\/+$/g, ""));
+  return [PROCESS_HUB_BASE_PATH, ...clean].join("/");
+}
 
 /* ─── See All tree ─── */
 function AllCategoriesTree({
@@ -91,32 +97,58 @@ export function HomeClient({
 
   const handleCategoryClick = (id: string) => {
     if (categoryId === id) {
-      router.push("/");
+      router.push(PROCESS_HUB_BASE_PATH);
     } else {
-      router.push(`/${id}`);
+      router.push(processHubHref(id));
     }
   };
 
   const handleSubCategoryClick = (id: string) => {
     if (!categoryId) return;
     if (subCategoryId === id) {
-      router.push(`/${categoryId}`);
+      router.push(processHubHref(categoryId));
     } else {
-      router.push(`/${categoryId}/${id}`);
+      router.push(processHubHref(categoryId, id));
     }
   };
 
   const handleSeeAll = () => {
-    router.push("/");
+    router.push(PROCESS_HUB_BASE_PATH);
   };
 
   const handleTreeSelect = (catId: string, subId: string) => {
-    router.push(`/${catId}/${subId}`);
+    router.push(processHubHref(catId, subId));
   };
 
+  // Aggregate live counts for the header badge
+  const totalCount = categories.reduce((acc, c) => acc + c.subCategories.length, 0);
+  const liveCount = categories.reduce(
+    (acc, c) => acc + c.subCategories.filter((s) => s.hasContent).length,
+    0,
+  );
+
+  // Build breadcrumb trail
+  const crumbs: { label: string; onClick?: () => void }[] = [];
+  if (activeCategory) {
+    crumbs.push({
+      label: activeCategory.label,
+      onClick: activeSubCategory
+        ? () => router.push(processHubHref(activeCategory.id))
+        : undefined,
+    });
+  }
+  if (activeSubCategory) {
+    crumbs.push({ label: activeSubCategory.label });
+  }
+
   return (
-    <div className="min-h-screen bg-white flex flex-col">
-      <ProcessHeader />
+    <div className="flex min-h-full flex-col bg-white">
+      <ProcessHeader
+        crumbs={crumbs}
+        liveCount={liveCount}
+        totalCount={totalCount}
+        onHomeClick={handleSeeAll}
+      />
 
       <CategoryFilter
         activeCategoryId={categoryId ?? null}
@@ -155,12 +187,6 @@ export function HomeClient({
         {/* Subcategory selected */}
         {!showAll && activeSubCategory && (
           <div>
-            <p className="text-[12px] mb-6" style={{ fontFamily: "'Manrope', sans-serif", color: "#999" }}>
-              {activeCategory?.label}
-              <span className="mx-2">›</span>
-              <span style={{ color: BRAND_BLUE, fontWeight: 700 }}>{activeSubCategory.label}</span>
-            </p>
-
             {activeSubCategory.id === "flash-reports" ? (
               <ValueStreamMap />
             ) : activeSubCategory.id === "ai-it-due-diligence" ? (

@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { PowerOneShell } from "@/components/PowerOneShell";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -13,7 +14,9 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" className="h-full antialiased">
-      <body className="min-h-full flex flex-col bg-white">{children}</body>
+      <body className="h-full overflow-hidden bg-white">
+        <PowerOneShell>{children}</PowerOneShell>
+      </body>
     </html>
   );
 }
