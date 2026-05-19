@@ -35,6 +35,7 @@ yarn-error.log*
 
 # MCP config contains API keys — keep local only
 .mcp.json
+.codex/
 
 # vercel
 .vercel
