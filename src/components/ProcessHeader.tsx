@@ -29,7 +29,7 @@ export function ProcessHeader({
           className="text-[11px] font-bold uppercase tracking-wider text-black/45"
           style={{ fontFamily: "'Manrope', sans-serif" }}
         >
-          PowerOne
+          Process maps
         </span>
         <h1
           className="whitespace-nowrap text-[22px] font-bold leading-tight text-black transition-opacity group-hover:opacity-70"
