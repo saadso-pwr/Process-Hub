@@ -30,13 +30,6 @@ type PrimaryBucket = {
   disabled?: boolean;
 };
 
-type SecondaryItem = {
-  title: string;
-  href: string;
-  icon: IconComponent;
-  matchMode?: "exact" | "prefix";
-};
-
 const primaryBuckets: PrimaryBucket[] = [
   { key: "workspace", label: "Workspace", href: "#", icon: GridIcon, disabled: true },
   { key: "process", label: "Process Hub", href: PROCESS_HUB_BASE_PATH, icon: ProcessIcon },
@@ -49,10 +42,6 @@ const primaryBuckets: PrimaryBucket[] = [
 function buildProcessHref(...parts: string[]) {
   const clean = parts.filter(Boolean).map((part) => part.replace(/^\/+|\/+$/g, ""));
   return [PROCESS_HUB_BASE_PATH, ...clean].join("/");
-}
-
-function isProcessPath(pathname: string) {
-  return pathname === PROCESS_HUB_BASE_PATH || pathname.startsWith(`${PROCESS_HUB_BASE_PATH}/`);
 }
 
 function getInitials(name: string) {
@@ -150,17 +139,17 @@ function SearchBar() {
   }
 
   return (
-    <form onSubmit={handleSubmit} className="relative w-full max-w-md">
-      <SearchIcon className="absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-zinc-400" />
+    <form onSubmit={handleSubmit} className="relative w-full max-w-sm">
+      <SearchIcon className="absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-zinc-500" />
       <input
         ref={inputRef}
         type="search"
         placeholder="Search process maps"
         value={query}
         onChange={(event) => setQuery(event.target.value)}
-        className="h-8 w-full rounded-full bg-white/10 pl-8 pr-10 text-xs text-white outline-none transition-colors placeholder:text-zinc-400 focus:bg-white/15"
+        className="h-9 w-full rounded-md border border-zinc-200 bg-zinc-50 pl-8 pr-10 text-sm text-zinc-950 outline-none transition-colors placeholder:text-zinc-500 focus:border-zinc-400 focus:bg-white"
       />
-      <kbd className="absolute right-3 top-1/2 -translate-y-1/2 rounded border border-white/20 px-1.5 py-0.5 text-[10px] text-zinc-400">
+      <kbd className="absolute right-2.5 top-1/2 -translate-y-1/2 rounded border border-zinc-200 bg-white px-1.5 py-0.5 text-[10px] text-zinc-500">
         /
       </kbd>
     </form>
@@ -169,25 +158,28 @@ function SearchBar() {
 
 function PowerOneHeader({ onSignOut }: { onSignOut: () => void }) {
   return (
-    <header className="flex h-16 shrink-0 items-center gap-4 bg-black px-3">
+    <header className="flex h-14 shrink-0 items-center gap-4 border-b border-zinc-200 bg-white px-4">
       <Link href={PROCESS_HUB_BASE_PATH} className="flex min-w-0 items-center gap-3">
-        <PowerTechLogo className="h-9 w-28 rounded-md" />
-        <div className="hidden min-w-0 flex-col leading-tight sm:flex">
-          <span className="text-sm font-semibold text-white">PowerOne</span>
-          <span className="text-[11px] font-medium text-zinc-400">Process Hub</span>
+        <PowerTechLogo className="h-8 w-28 rounded-md border border-zinc-200" />
+        <div className="hidden h-7 w-px bg-zinc-200 sm:block" />
+        <div className="hidden min-w-0 items-baseline gap-2 sm:flex">
+          <span className="text-sm font-semibold text-zinc-950">PowerOne</span>
+          <span className="rounded-full bg-[#00037C]/10 px-2 py-0.5 text-[11px] font-semibold text-[#00037C]">
+            Process Hub
+          </span>
         </div>
       </Link>
 
-      <div className="hidden flex-1 justify-center px-4 sm:flex">
+      <div className="ml-auto hidden w-full max-w-sm sm:block">
         <SearchBar />
       </div>
 
-      <div className="ml-auto flex items-center gap-2">
+      <div className="flex items-center gap-1">
         <a
           href="https://powertech-space.slack.com/archives/C0AUFBDL2MS"
           target="_blank"
           rel="noopener noreferrer"
-          className="flex size-8 items-center justify-center rounded-md text-zinc-400 transition-colors hover:bg-white/10 hover:text-white"
+          className="flex size-9 items-center justify-center rounded-md text-zinc-500 transition-colors hover:bg-zinc-100 hover:text-zinc-950"
           aria-label="Help"
           title="Help"
         >
@@ -195,7 +187,7 @@ function PowerOneHeader({ onSignOut }: { onSignOut: () => void }) {
         </a>
         <button
           type="button"
-          className="relative flex size-8 items-center justify-center rounded-md text-zinc-400 transition-colors hover:bg-white/10 hover:text-white"
+          className="relative flex size-9 items-center justify-center rounded-md text-zinc-500 transition-colors hover:bg-zinc-100 hover:text-zinc-950"
           aria-label="Notifications"
           title="Notifications"
         >
@@ -205,7 +197,7 @@ function PowerOneHeader({ onSignOut }: { onSignOut: () => void }) {
         <button
           type="button"
           onClick={onSignOut}
-          className="ml-1 flex size-8 items-center justify-center rounded-full bg-white/20 text-xs font-medium text-white transition-colors hover:bg-white/30"
+          className="ml-1 flex size-9 items-center justify-center rounded-full bg-zinc-950 text-xs font-medium text-white transition-colors hover:bg-zinc-700"
           aria-label="Sign out"
           title="Sign out"
         >
@@ -218,7 +210,7 @@ function PowerOneHeader({ onSignOut }: { onSignOut: () => void }) {
 
 function PrimaryRail() {
   return (
-    <nav className="flex w-14 shrink-0 flex-col items-center gap-1 border-r border-white/10 bg-black py-3">
+    <nav className="hidden w-14 shrink-0 flex-col items-center gap-1 border-r border-white/10 bg-black py-3 sm:flex">
       {primaryBuckets.map((bucket) => {
         const isActive = bucket.key === "process";
         const Icon = bucket.icon;
@@ -258,114 +250,11 @@ function PrimaryRail() {
   );
 }
 
-function SecondaryNavItemButton({
-  item,
-  pathname,
-}: {
-  item: SecondaryItem;
-  pathname: string;
-}) {
-  const Icon = item.icon;
-  const itemPath = item.href.split("?")[0];
-  const isActive =
-    item.matchMode === "exact"
-      ? pathname === itemPath
-      : pathname === itemPath || pathname.startsWith(`${itemPath}/`);
-
-  return (
-    <Link
-      href={item.href}
-      className={`flex min-h-8 items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors ${
-        isActive
-          ? "bg-zinc-200 text-zinc-950"
-          : "text-zinc-700 hover:bg-zinc-100 hover:text-zinc-950"
-      }`}
-    >
-      <Icon className="size-4 shrink-0" />
-      <span className="truncate">{item.title}</span>
-    </Link>
-  );
-}
-
-function SecondarySidebar({ pathname }: { pathname: string }) {
-  const liveItems: SecondaryItem[] = categories.flatMap((category) =>
-    category.subCategories
-      .filter((subCategory) => subCategory.hasContent)
-      .map((subCategory) => ({
-        title: subCategory.label,
-        href: buildProcessHref(category.id, subCategory.id),
-        icon: MapIcon,
-      })),
-  );
-
-  const categoryItems: SecondaryItem[] = categories.map((category) => ({
-    title: category.label,
-    href: buildProcessHref(category.id),
-    icon: FolderIcon,
-  }));
-
-  return (
-    <aside className="hidden h-full w-60 shrink-0 flex-col overflow-hidden border-r border-zinc-200 bg-zinc-50 md:flex">
-      <div className="border-b border-zinc-200 px-4 py-5">
-        <p className="text-sm font-semibold text-zinc-950">Process Hub</p>
-        <p className="mt-1 text-xs leading-5 text-zinc-500">Offerings process maps</p>
-      </div>
-
-      <div className="flex-1 overflow-y-auto px-3 py-4">
-        <div className="space-y-5">
-          <nav>
-            <p className="px-2 pb-2 text-[11px] font-semibold uppercase text-zinc-500">
-              Overview
-            </p>
-            <SecondaryNavItemButton
-              item={{
-                title: "Browse All",
-                href: PROCESS_HUB_BASE_PATH,
-                icon: HomeIcon,
-                matchMode: "exact",
-              }}
-              pathname={pathname}
-            />
-          </nav>
-
-          <nav>
-            <p className="px-2 pb-2 text-[11px] font-semibold uppercase text-zinc-500">
-              Live Maps
-            </p>
-            <div className="space-y-1">
-              {liveItems.map((item) => (
-                <SecondaryNavItemButton key={item.href} item={item} pathname={pathname} />
-              ))}
-            </div>
-          </nav>
-
-          <nav>
-            <p className="px-2 pb-2 text-[11px] font-semibold uppercase text-zinc-500">
-              Offering Areas
-            </p>
-            <div className="space-y-1">
-              {categoryItems.map((item) => (
-                <SecondaryNavItemButton key={item.href} item={item} pathname={pathname} />
-              ))}
-            </div>
-          </nav>
-        </div>
-      </div>
-    </aside>
-  );
-}
-
 function ShellLoading() {
   return (
-    <div className="flex h-svh w-full flex-col overflow-hidden bg-white">
-      <header className="h-16 shrink-0 bg-black" />
-      <div className="flex flex-1 overflow-hidden">
-        <div className="w-14 shrink-0 bg-black" />
-        <main className="flex flex-1 items-center justify-center">
-          <div className="h-2 w-32 overflow-hidden rounded-full bg-zinc-200">
-            <div className="h-full w-1/2 animate-pulse rounded-full bg-[#31BAF0]" />
-          </div>
-        </main>
+    <div className="flex h-svh w-full items-center justify-center bg-white">
+      <div className="h-2 w-32 overflow-hidden rounded-full bg-zinc-200">
+        <div className="h-full w-1/2 animate-pulse rounded-full bg-[#31BAF0]" />
       </div>
     </div>
   );
@@ -408,11 +297,10 @@ export function PowerOneShell({ children }: { children: ReactNode }) {
   }
 
   return (
-    <div className="flex h-svh w-full flex-col overflow-hidden bg-white text-zinc-950">
-      <PowerOneHeader onSignOut={handleSignOut} />
-      <div className="flex flex-1 overflow-hidden">
-        <PrimaryRail />
-        {isProcessPath(pathname) ? <SecondarySidebar pathname={pathname} /> : null}
+    <div className="flex h-svh w-full overflow-hidden bg-white text-zinc-950">
+      <PrimaryRail />
+      <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+        <PowerOneHeader onSignOut={handleSignOut} />
         <main className="min-w-0 flex-1 overflow-y-auto bg-white">{children}</main>
       </div>
     </div>
@@ -502,31 +390,6 @@ function BellIcon(props: SVGProps<SVGSVGElement>) {
     <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" {...props}>
       <path d="M18 9a6 6 0 1 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9Z" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" />
       <path d="M10 21h4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-    </svg>
-  );
-}
-
-function HomeIcon(props: SVGProps<SVGSVGElement>) {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" {...props}>
-      <path d="m4 11 8-7 8 7v9H6v-7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-}
-
-function MapIcon(props: SVGProps<SVGSVGElement>) {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" {...props}>
-      <path d="M9 5 3 7v14l6-2 6 2 6-2V5l-6 2-6-2Z" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" />
-      <path d="M9 5v14M15 7v14" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-    </svg>
-  );
-}
-
-function FolderIcon(props: SVGProps<SVGSVGElement>) {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" {...props}>
-      <path d="M3 6.5A2.5 2.5 0 0 1 5.5 4H10l2 2h6.5A2.5 2.5 0 0 1 21 8.5v8A3.5 3.5 0 0 1 17.5 20h-11A3.5 3.5 0 0 1 3 16.5v-10Z" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" />
     </svg>
   );
 }
