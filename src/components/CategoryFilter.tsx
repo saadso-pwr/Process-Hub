@@ -7,7 +7,7 @@ const BRAND_BLUE = "#00037C";
 function StatusDot({ live }: { live: boolean }) {
   return (
     <span
-      className="w-1.5 h-1.5 rounded-full shrink-0"
+      className="size-1.5 shrink-0 rounded-full"
       style={{ backgroundColor: live ? BRAND_BLUE : "#cfcfcf" }}
     />
   );
@@ -17,16 +17,18 @@ function LiveCountBadge({
   live,
   total,
   active,
+  compact = false,
 }: {
   live: number;
   total: number;
   active: boolean;
+  compact?: boolean;
 }) {
   if (total === 0) return null;
   const allDone = live === total && total > 0;
   return (
     <span
-      className="text-[10px] font-bold px-1.5 py-0.5 rounded-full leading-none"
+      className="rounded-full px-1.5 py-0.5 text-[10px] font-bold leading-none"
       style={{
         fontFamily: "'Manrope', sans-serif",
         backgroundColor: active
@@ -37,7 +39,7 @@ function LiveCountBadge({
         color: active ? "#fff" : live === 0 ? "#999" : BRAND_BLUE,
       }}
     >
-      {allDone ? `${live}` : `${live}/${total}`}
+      {compact || allDone ? `${live}` : `${live}/${total}`}
     </span>
   );
 }
@@ -59,18 +61,20 @@ function CategoryButton({
   return (
     <button
       onClick={onClick}
-      className="rounded-full pl-3.5 pr-2.5 py-1.5 border flex items-center gap-2 transition-all duration-150 cursor-pointer whitespace-nowrap text-[12px] hover:shadow-sm"
+      aria-pressed={active}
+      className="flex h-9 shrink-0 cursor-pointer items-center gap-2 rounded-lg border px-3 text-sm transition-all duration-150 hover:-translate-y-px hover:shadow-sm"
       style={{
         fontFamily: "'Manrope', sans-serif",
-        borderColor: active ? BRAND_BLUE : dimmed ? "#e0e0e0" : "#000",
-        backgroundColor: active ? BRAND_BLUE : "transparent",
-        color: active ? "#fff" : dimmed ? "#999" : "#000",
-        fontWeight: active ? 700 : 500,
+        borderColor: active ? BRAND_BLUE : "#e4e4e7",
+        backgroundColor: active ? BRAND_BLUE : "#fff",
+        color: active ? "#fff" : dimmed ? "#a1a1aa" : "#18181b",
+        fontWeight: active ? 700 : 600,
+        boxShadow: active ? "0 10px 24px rgba(0, 3, 124, 0.16)" : undefined,
       }}
       title={dimmed ? `${label} — coming soon` : label}
     >
-      {!active && <StatusDot live={liveCount > 0} />}
-      <span>{label}</span>
+      <StatusDot live={liveCount > 0} />
+      <span className="max-w-[260px] truncate">{label}</span>
       <LiveCountBadge live={liveCount} total={totalCount} active={active} />
     </button>
   );
@@ -89,21 +93,22 @@ function SubCategoryButton({
   return (
     <button
       onClick={onClick}
-      className="rounded-full pl-3 pr-3 py-1.5 border flex items-center gap-2 transition-all duration-150 cursor-pointer whitespace-nowrap text-[12px] hover:shadow-sm"
+      aria-pressed={active}
+      className="flex h-9 shrink-0 cursor-pointer items-center gap-2 rounded-lg border px-3 text-sm transition-all duration-150 hover:-translate-y-px hover:shadow-sm"
       style={{
         fontFamily: "'Manrope', sans-serif",
-        borderColor: active ? BRAND_BLUE : live ? "#000" : "#e0e0e0",
-        backgroundColor: active ? `${BRAND_BLUE}15` : "transparent",
-        color: active ? BRAND_BLUE : live ? "#000" : "#999",
-        fontWeight: active ? 700 : 500,
+        borderColor: active ? BRAND_BLUE : "#e4e4e7",
+        backgroundColor: active ? `${BRAND_BLUE}12` : "#fff",
+        color: active ? BRAND_BLUE : live ? "#18181b" : "#a1a1aa",
+        fontWeight: active ? 700 : 600,
       }}
       title={live ? sub.label : `${sub.label} — coming soon`}
     >
       <StatusDot live={live} />
-      <span>{sub.label}</span>
+      <span className="max-w-[300px] truncate">{sub.label}</span>
       {!live && (
         <span
-          className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full leading-none"
+          className="rounded-full px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider leading-none"
           style={{ backgroundColor: "#f0f0f0", color: "#888" }}
         >
           Soon
@@ -143,35 +148,58 @@ export function CategoryFilter({
   const activeTotalCount = activeCategory
     ? activeCategory.subCategories.length
     : 0;
+  const totalLiveCount = categories.reduce(
+    (count, category) =>
+      count + category.subCategories.filter((sub) => sub.hasContent).length,
+    0,
+  );
+  const totalMapCount = categories.reduce(
+    (count, category) => count + category.subCategories.length,
+    0,
+  );
 
   return (
-    <div className="px-6 py-4 border-b border-black/10 flex flex-col gap-3 bg-[#fafafa]">
-      {/* Category row */}
-      <div className="flex flex-col gap-2">
-        <div className="flex items-baseline gap-2">
+    <section className="border-b border-zinc-200 bg-zinc-50 px-6 py-4">
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
           <p
-            className="text-[11px] font-bold uppercase tracking-wider text-black/70"
+            className="text-[11px] font-bold uppercase tracking-wider text-zinc-500"
             style={{ fontFamily: "'Manrope', sans-serif" }}
           >
-            Step 1 — Category
+            Offering area
           </p>
           <p
-            className="text-[11px] text-black/45"
+            className="mt-1 text-sm font-semibold text-zinc-950"
             style={{ fontFamily: "'Manrope', sans-serif" }}
           >
-            Pick an offering area
+            {activeCategory ? activeCategory.label : "All process maps"}
           </p>
         </div>
-        <div className="flex flex-wrap gap-2 items-center">
-          {/* See All */}
+
+        <div className="flex items-center gap-2 rounded-lg border border-zinc-200 bg-white px-3 py-2 md:hidden">
+          <span className="flex items-center gap-1.5 text-xs font-semibold text-zinc-950">
+            <StatusDot live />
+            {totalLiveCount} live
+          </span>
+          <span className="h-4 w-px bg-zinc-200" />
+          <span className="text-xs font-semibold text-zinc-500">
+            {totalMapCount - totalLiveCount} coming soon
+          </span>
+        </div>
+      </div>
+
+      <div className="-mx-1 mt-3 overflow-x-auto pb-1">
+        <div className="flex min-w-max items-center gap-2 px-1">
           <button
             onClick={onSeeAll}
-            className="rounded-full pl-3 pr-3.5 py-1.5 border flex items-center gap-2 transition-all duration-150 cursor-pointer text-[12px] font-bold hover:shadow-sm"
+            aria-pressed={showAll}
+            className="flex h-9 shrink-0 cursor-pointer items-center gap-2 rounded-lg border px-3 text-sm font-bold transition-all duration-150 hover:-translate-y-px hover:shadow-sm"
             style={{
               fontFamily: "'Manrope', sans-serif",
-              borderColor: showAll ? BRAND_BLUE : "#000",
+              borderColor: showAll ? BRAND_BLUE : "#e4e4e7",
               backgroundColor: showAll ? BRAND_BLUE : "transparent",
-              color: showAll ? "#fff" : "#000",
+              color: showAll ? "#fff" : "#18181b",
+              boxShadow: showAll ? "0 10px 24px rgba(0, 3, 124, 0.16)" : undefined,
             }}
           >
             <svg width="11" height="8" viewBox="0 0 11 8" fill="none">
@@ -199,67 +227,35 @@ export function CategoryFilter({
         </div>
       </div>
 
-      {/* Sub-category row */}
-      <div className="flex flex-col gap-2 border-t border-black/5 pt-3">
-        <div className="flex items-baseline gap-2">
-          <p
-            className="text-[11px] font-bold uppercase tracking-wider"
-            style={{
-              fontFamily: "'Manrope', sans-serif",
-              color: activeCategory ? "rgba(0,0,0,0.7)" : "rgba(0,0,0,0.35)",
-            }}
-          >
-            Step 2 — Sub-category
-          </p>
-          {activeCategory ? (
+      {activeCategory ? (
+        <div className="mt-4 rounded-xl border border-zinc-200 bg-white p-3 shadow-sm">
+          <div className="flex flex-wrap items-center justify-between gap-2">
             <p
-              className="text-[11px]"
-              style={{ fontFamily: "'Manrope', sans-serif", color: "#666" }}
-            >
-              <span style={{ color: BRAND_BLUE, fontWeight: 700 }}>
-                {activeLiveCount}
-              </span>{" "}
-              of {activeTotalCount} available in{" "}
-              <span style={{ fontWeight: 700 }}>{activeCategory.label}</span>
-            </p>
-          ) : (
-            <p
-              className="text-[11px] text-black/45"
+              className="text-[11px] font-bold uppercase tracking-wider text-zinc-500"
               style={{ fontFamily: "'Manrope', sans-serif" }}
             >
-              Pick a category first to see options
+              Process map
             </p>
-          )}
+            <div className="flex items-center gap-1.5 text-xs font-semibold text-zinc-500">
+              <StatusDot live={activeLiveCount > 0} />
+              <span>{activeLiveCount} of {activeTotalCount} live</span>
+            </div>
+          </div>
+
+          <div className="-mx-1 mt-3 overflow-x-auto pb-1">
+            <div className="flex min-w-max gap-2 px-1">
+              {activeCategory.subCategories.map((sub) => (
+                <SubCategoryButton
+                  key={sub.id}
+                  sub={sub}
+                  active={activeSubCategoryId === sub.id}
+                  onClick={() => onSubCategoryClick(sub.id)}
+                />
+              ))}
+            </div>
+          </div>
         </div>
-        {activeCategory && activeCategory.subCategories.length > 0 ? (
-          <div className="flex flex-wrap gap-2">
-            {activeCategory.subCategories.map((sub) => (
-              <SubCategoryButton
-                key={sub.id}
-                sub={sub}
-                active={activeSubCategoryId === sub.id}
-                onClick={() => onSubCategoryClick(sub.id)}
-              />
-            ))}
-          </div>
-        ) : (
-          <div
-            className="rounded-lg border border-dashed px-3 py-2 text-[12px] italic flex items-center gap-2"
-            style={{
-              fontFamily: "'Manrope', sans-serif",
-              color: "#999",
-              borderColor: "#e0e0e0",
-              backgroundColor: "#fff",
-            }}
-          >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
-              <circle cx="12" cy="12" r="9" stroke="#bbb" strokeWidth="2" />
-              <path d="M12 8v4M12 16h.01" stroke="#bbb" strokeWidth="2" strokeLinecap="round" />
-            </svg>
-            Select a category above to view sub-categories.
-          </div>
-        )}
-      </div>
-    </div>
+      ) : null}
+    </section>
   );
 }
