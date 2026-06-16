@@ -239,11 +239,25 @@ export function canonicalToBuilder(diagram: CanonicalDiagram): DiagramDoc {
     };
   });
 
-  const edges: BuilderEdge[] = diagram.edges.map((e) => ({
-    id: e.id,
-    source: e.source,
-    target: e.target,
-    label: e.label,
+  const edges: BuilderEdge[] = diagram.edges.map((e) =>
+    styledEdge(e.id, e.source, e.target, e.label),
+  );
+
+  return { nodes, edges };
+}
+
+/** A default-styled edge (smoothstep, grey, colour-following arrow marker). */
+export function styledEdge(
+  id: string,
+  source: string,
+  target: string,
+  label?: string,
+): BuilderEdge {
+  return {
+    id,
+    source,
+    target,
+    label,
     type: "smoothstep",
     // Custom marker whose colour follows the line stroke (see ProcessBuilder defs).
     markerEnd: "ep-arrow",
@@ -252,9 +266,94 @@ export function canonicalToBuilder(diagram: CanonicalDiagram): DiagramDoc {
     labelBgStyle: { fill: "#fff", fillOpacity: 0.9 },
     labelBgPadding: [6, 3] as [number, number],
     labelBgBorderRadius: 4,
-  }));
+  };
+}
 
-  return { nodes, edges };
+/* ──────────────────────────────────────────────────────────────────────────
+ * Convert the editable canvas back into the canonical schema, so the AI can be
+ * given the current diagram as context and return an updated version.
+ * ────────────────────────────────────────────────────────────────────────── */
+
+function inferType(
+  node: Node,
+  incoming: Set<string>,
+  outgoing: Set<string>,
+): CanonicalNodeType {
+  const shape = (node.data as BuilderNodeData | undefined)?.shape;
+  if (shape === "diamond") return "decision";
+  if (shape === "circle") {
+    if (!incoming.has(node.id)) return "start";
+    if (!outgoing.has(node.id)) return "end";
+  }
+  return "task";
+}
+
+export function builderToCanonical(nodes: Node[], edges: Edge[]): CanonicalDiagram {
+  const custom = nodes.filter((n) => n.type === "custom");
+  const ids = new Set(custom.map((n) => n.id));
+  const incoming = new Set(edges.map((e) => e.target));
+  const outgoing = new Set(edges.map((e) => e.source));
+  return {
+    nodes: custom.map((n) => ({
+      id: n.id,
+      type: inferType(n, incoming, outgoing),
+      label: (n.data as BuilderNodeData).texts?.[0] ?? "",
+    })),
+    edges: edges
+      .filter((e) => ids.has(e.source) && ids.has(e.target))
+      .map((e) => ({
+        id: e.id,
+        source: e.source,
+        target: e.target,
+        label: typeof e.label === "string" ? e.label : undefined,
+      })),
+  };
+}
+
+/**
+ * Apply an AI-returned canonical diagram onto the current canvas, preserving
+ * the styling/position/popup of any node that already exists (matched by id),
+ * and only re-running layout when the structure actually changed.
+ */
+export function applyCanonical(
+  prevNodes: Node[],
+  prevEdges: Edge[],
+  canonical: CanonicalDiagram,
+): { nodes: Node[]; edges: Edge[]; relayout: boolean } {
+  const prevCustom = new Map(prevNodes.filter((n) => n.type === "custom").map((n) => [n.id, n]));
+  const others = prevNodes.filter((n) => n.type !== "custom"); // lanes, media
+  let relayout = false;
+
+  const nodes: Node[] = canonical.nodes.map((cn) => {
+    const prev = prevCustom.get(cn.id);
+    if (prev) {
+      const d = prev.data as BuilderNodeData;
+      const texts = d.texts && d.texts.length ? [...d.texts] : [""];
+      texts[0] = cn.label;
+      return { ...prev, data: { ...d, texts } };
+    }
+    relayout = true;
+    const style = TYPE_STYLE[cn.type] ?? TYPE_STYLE.task;
+    const size = DEFAULT_SIZE[style.shape];
+    return {
+      id: cn.id,
+      type: "custom",
+      position: { x: 0, y: 0 },
+      width: size.width,
+      height: size.height,
+      data: { texts: [cn.label], shape: style.shape, color: style.color, fill: style.fill, dashed: style.dashed },
+    };
+  });
+  if (nodes.length !== prevCustom.size) relayout = true;
+
+  const prevEdgeById = new Map(prevEdges.map((e) => [e.id, e]));
+  const edges: Edge[] = canonical.edges.map((ce) => {
+    const prev = prevEdgeById.get(ce.id);
+    if (prev) return { ...prev, source: ce.source, target: ce.target, label: ce.label };
+    return styledEdge(ce.id, ce.source, ce.target, ce.label);
+  });
+
+  return { nodes: [...others, ...nodes], edges, relayout };
 }
 
 /* ──────────────────────────────────────────────────────────────────────────
@@ -328,11 +427,11 @@ export function parseProcessText(input: string): CanonicalDiagram {
 
   const nodes: CanonicalNode[] = [];
   const edges: CanonicalEdge[] = [];
-  let idx = 0;
-  const nextId = () => `n${++idx}`;
-  let edgeIdx = 0;
+  // Unique ids so a parsed diagram never collides with ids already on the
+  // canvas (which would make the apply-merge preserve the wrong node's style).
+  const nextId = () => makeId("n");
   const edge = (source: string, target: string, label?: string) =>
-    edges.push({ id: `e${++edgeIdx}`, source, target, label });
+    edges.push({ id: makeId("e"), source, target, label });
 
   // The node(s) the next plain line should flow from.
   let flowFrom: string[] = [];

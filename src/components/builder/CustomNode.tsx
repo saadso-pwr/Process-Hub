@@ -13,11 +13,14 @@ import { hasPopup, type BuilderNodeData } from "./diagram";
 
 const FF = "'Manrope', sans-serif";
 
+// Large transparent hit area with a small visible dot drawn in the centre,
+// so the connection points are easy to grab without looking oversized.
 const sideHandle: React.CSSProperties = {
-  width: 9,
-  height: 9,
-  background: "#fff",
-  border: "1.5px solid #00037C",
+  width: 26,
+  height: 26,
+  background:
+    "radial-gradient(circle at center, #fff 0 2.8px, #00037C 2.8px 5.2px, transparent 5.6px)",
+  border: "none",
   borderRadius: "50%",
 };
 

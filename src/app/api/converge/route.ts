@@ -1,63 +1,133 @@
 import { NextResponse } from "next/server";
-import { parseProcessText } from "@/components/builder/diagram";
+import { parseProcessText, coerceCanonical } from "@/components/builder/diagram";
 
 /**
- * Converge a plain-language process description into the canonical diagram JSON
- * the canvas understands: { nodes:[{id,type,label}], edges:[{id,source,target,label}] }.
+ * Conversational diagram builder.
  *
- * When ANTHROPIC_API_KEY is set, this calls Claude to do the agentic generation.
- * Otherwise (and on any failure) it falls back to the deterministic text parser,
- * so the prototype always works offline.
+ * The client holds a back-and-forth chat with the model (like talking to
+ * Claude), and each turn can update the canvas. The model replies with a small
+ * JSON envelope:
+ *   { "reply": "<chat message>", "diagram": { nodes, edges } | null }
+ * where `diagram` is the full updated canonical diagram, or null when the user
+ * is just chatting and nothing should change on the canvas.
+ *
+ * Set ANTHROPIC_API_KEY in .env.local to enable live AI. Without it (and on any
+ * error) we fall back to the deterministic text parser so the prototype always
+ * works offline.
  */
 
 const MODEL = process.env.CONVERGE_MODEL ?? "claude-sonnet-4-6";
+const PROVIDER = "anthropic";
 
-const SYSTEM_PROMPT = `You convert a plain-language description of a business process into a clean flowchart as JSON.
+type ChatMessage = { role: "user" | "assistant"; content: string };
+type Preferences = {
+  styleNotes?: string;
+  palette?: string[];
+  reference?: string;
+};
 
-Return ONLY a JSON object (no prose, no markdown fences) of this exact shape:
-{
-  "nodes": [ { "id": "n1", "type": "start|end|task|decision", "label": "short text" } ],
-  "edges": [ { "id": "e1", "source": "n1", "target": "n2", "label": "optional, e.g. Yes/No" } ]
+function buildSystemPrompt(prefs?: Preferences, currentDiagram?: unknown): string {
+  const lines = [
+    "You are a process-mapping assistant inside a visual diagram builder.",
+    "You converse with the user about a business process and maintain a flowchart for them.",
+    "",
+    "Always respond with ONLY a JSON object (no prose, no markdown fences) of this exact shape:",
+    '{ "reply": "<a short, friendly chat message>", "diagram": <diagram-or-null> }',
+    "",
+    "`diagram` is either null (when the user is only asking a question or no change is needed)",
+    "or the FULL updated diagram of this shape:",
+    '{ "nodes": [ { "id": "n1", "type": "start|end|task|decision", "label": "short text" } ],',
+    '  "edges": [ { "id": "e1", "source": "n1", "target": "n2", "label": "optional e.g. Yes/No" } ] }',
+    "",
+    "Rules for the diagram:",
+    "- type is one of: start, end, task, decision.",
+    "- Use exactly one start and at least one end.",
+    "- A decision is a yes/no or branching question; label its outgoing edges.",
+    "- Keep labels concise. Connect steps in logical order. No coordinates.",
+    "- When editing an existing diagram, REUSE the existing node ids you were given for",
+    "  steps that remain, so their styling and position are preserved; only add new ids",
+    "  for genuinely new steps.",
+  ];
+
+  if (prefs?.styleNotes?.trim()) {
+    lines.push("", `User's preferred style: ${prefs.styleNotes.trim()}`);
+  }
+  if (prefs?.palette && prefs.palette.length) {
+    lines.push(`Preferred colours: ${prefs.palette.join(", ")}.`);
+  }
+  if (prefs?.reference?.trim()) {
+    lines.push("", "Reference / house conventions to follow:", prefs.reference.trim());
+  }
+  if (currentDiagram) {
+    lines.push("", "Current diagram on the canvas (JSON):", JSON.stringify(currentDiagram));
+  }
+  return lines.join("\n");
 }
 
-Rules:
-- "type" must be one of: start, end, task, decision.
-- Use exactly one "start" and at least one "end".
-- A "decision" is a yes/no or branching question; its outgoing edges should be labelled (e.g. "Yes", "No").
-- Keep labels concise (a few words). Connect steps in logical order.
-- Do NOT include positions or coordinates — those are computed later.
-- Output valid JSON only.`;
+export async function GET() {
+  return NextResponse.json({
+    configured: Boolean(process.env.ANTHROPIC_API_KEY),
+    provider: PROVIDER,
+    model: MODEL,
+    envVar: "ANTHROPIC_API_KEY",
+  });
+}
 
 export async function POST(request: Request) {
-  let prompt = "";
+  let body: {
+    messages?: ChatMessage[];
+    prompt?: string;
+    diagram?: unknown;
+    preferences?: Preferences;
+  } = {};
   try {
-    const body = await request.json();
-    prompt = typeof body?.prompt === "string" ? body.prompt : "";
+    body = await request.json();
   } catch {
-    /* ignore — handled below */
+    /* handled below */
   }
 
-  if (!prompt.trim()) {
-    return NextResponse.json({ error: "Missing prompt" }, { status: 400 });
+  const messages: ChatMessage[] =
+    body.messages && body.messages.length
+      ? body.messages
+      : body.prompt
+        ? [{ role: "user", content: body.prompt }]
+        : [];
+
+  const lastUser = [...messages].reverse().find((m) => m.role === "user")?.content ?? "";
+  if (!lastUser.trim()) {
+    return NextResponse.json({ error: "Nothing to process" }, { status: 400 });
   }
 
   const apiKey = process.env.ANTHROPIC_API_KEY;
 
   if (apiKey) {
     try {
-      const diagram = await generateWithClaude(prompt, apiKey);
-      if (diagram) {
-        return NextResponse.json({ source: "ai", diagram });
+      const result = await chatWithClaude(messages, body.preferences, body.diagram, apiKey);
+      if (result) {
+        const diagram = result.diagram ? coerceCanonical(result.diagram) : null;
+        return NextResponse.json({ source: "ai", reply: result.reply, diagram });
       }
     } catch {
       /* fall through to local parser */
     }
   }
 
-  return NextResponse.json({ source: "local", diagram: parseProcessText(prompt) });
+  // Offline fallback: build a diagram from the latest user message.
+  return NextResponse.json({
+    source: "local",
+    reply: apiKey
+      ? "I couldn't reach the AI just now, so I built this from your description with the built-in parser. You can keep editing it by hand."
+      : "No AI key is configured yet, so I built this from your description with the built-in parser. Add ANTHROPIC_API_KEY to .env.local to chat with live AI.",
+    diagram: parseProcessText(lastUser),
+  });
 }
 
-async function generateWithClaude(prompt: string, apiKey: string) {
+async function chatWithClaude(
+  messages: ChatMessage[],
+  prefs: Preferences | undefined,
+  currentDiagram: unknown,
+  apiKey: string,
+): Promise<{ reply: string; diagram: unknown } | null> {
   const res = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: {
@@ -67,14 +137,9 @@ async function generateWithClaude(prompt: string, apiKey: string) {
     },
     body: JSON.stringify({
       model: MODEL,
-      max_tokens: 2000,
-      system: SYSTEM_PROMPT,
-      messages: [
-        {
-          role: "user",
-          content: `Process description:\n\n${prompt}\n\nReturn the diagram JSON now.`,
-        },
-      ],
+      max_tokens: 2500,
+      system: buildSystemPrompt(prefs, currentDiagram),
+      messages: messages.map((m) => ({ role: m.role, content: m.content })),
     }),
   });
 
@@ -86,7 +151,16 @@ async function generateWithClaude(prompt: string, apiKey: string) {
     .map((b: { text?: string }) => b.text ?? "")
     .join("");
 
-  return extractJson(text);
+  const obj = extractJson(text);
+  if (obj && typeof obj === "object") {
+    const o = obj as Record<string, unknown>;
+    return {
+      reply: typeof o.reply === "string" ? o.reply : "Updated the diagram.",
+      diagram: o.diagram ?? null,
+    };
+  }
+  // Model didn't return our envelope — treat the whole reply as chat text.
+  return { reply: text.trim() || "Done.", diagram: null };
 }
 
 /** Pull the first JSON object out of the model's reply, tolerating stray prose. */
