@@ -16,11 +16,14 @@ import {
 
 import { categories } from "@/data/categories";
 import { PowerTechLogo } from "@/components/PowerTechLogo";
+import { PresentationContext } from "@/components/presentation";
 
 const LOCAL_AUTH_KEY = "process-hub.local-session";
 const PROCESS_HUB_BASE_PATH = "/process-hub";
 
 type IconComponent = ComponentType<SVGProps<SVGSVGElement>>;
+
+const CREATE_PATH = "/create";
 
 type PrimaryBucket = {
   key: string;
@@ -28,11 +31,14 @@ type PrimaryBucket = {
   href: string;
   icon: IconComponent;
   disabled?: boolean;
+  /** Pathname prefix that marks this bucket active. */
+  match?: string;
 };
 
 const primaryBuckets: PrimaryBucket[] = [
   { key: "workspace", label: "Workspace", href: "#", icon: GridIcon, disabled: true },
-  { key: "process", label: "Process Hub", href: PROCESS_HUB_BASE_PATH, icon: ProcessIcon },
+  { key: "process", label: "Process Hub", href: PROCESS_HUB_BASE_PATH, icon: ProcessIcon, match: PROCESS_HUB_BASE_PATH },
+  { key: "create", label: "Create", href: CREATE_PATH, icon: PlusIcon, match: CREATE_PATH },
   { key: "knowledge", label: "Knowledge", href: "#", icon: BookIcon, disabled: true },
   { key: "directory", label: "Directory", href: "#", icon: UsersIcon, disabled: true },
   { key: "ai", label: "AI", href: "#", icon: SparklesIcon, disabled: true },
@@ -156,7 +162,7 @@ function SearchBar() {
   );
 }
 
-function PowerOneHeader({ onSignOut }: { onSignOut: () => void }) {
+function PowerOneHeader({ onSignOut, onPresent }: { onSignOut: () => void; onPresent: () => void }) {
   return (
     <header className="flex h-14 shrink-0 items-center gap-4 border-b border-zinc-200 bg-white px-4">
       <Link href={PROCESS_HUB_BASE_PATH} className="flex min-w-0 items-center gap-3">
@@ -175,6 +181,16 @@ function PowerOneHeader({ onSignOut }: { onSignOut: () => void }) {
       </div>
 
       <div className="flex items-center gap-1">
+        <button
+          type="button"
+          onClick={onPresent}
+          className="mr-1 flex h-9 items-center gap-1.5 rounded-md border border-zinc-200 px-3 text-xs font-semibold text-zinc-700 transition-colors hover:bg-zinc-100 hover:text-zinc-950"
+          aria-label="Present"
+          title="Present (full-screen)"
+        >
+          <PresentIcon className="size-4" />
+          <span className="hidden sm:inline">Present</span>
+        </button>
         <a
           href="https://powertech-space.slack.com/archives/C0AUFBDL2MS"
           target="_blank"
@@ -208,11 +224,15 @@ function PowerOneHeader({ onSignOut }: { onSignOut: () => void }) {
   );
 }
 
-function PrimaryRail() {
+function PrimaryRail({ pathname }: { pathname: string }) {
   return (
     <nav className="hidden w-14 shrink-0 flex-col items-center gap-1 border-r border-white/10 bg-black py-3 sm:flex">
       {primaryBuckets.map((bucket) => {
-        const isActive = bucket.key === "process";
+        const isActive =
+          !!bucket.match &&
+          (bucket.match === CREATE_PATH
+            ? pathname === CREATE_PATH
+            : pathname.startsWith(bucket.match));
         const Icon = bucket.icon;
 
         if (bucket.disabled) {
@@ -264,6 +284,16 @@ export function PowerOneShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const isLoginRoute = pathname === "/login";
+  const [presenting, setPresenting] = useState(false);
+
+  useEffect(() => {
+    if (!presenting) return;
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") setPresenting(false);
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [presenting]);
   const isHydrated = useSyncExternalStore(
     subscribeToHydration,
     getClientHydrationSnapshot,
@@ -297,13 +327,28 @@ export function PowerOneShell({ children }: { children: ReactNode }) {
   }
 
   return (
-    <div className="flex h-svh w-full overflow-hidden bg-white text-zinc-950">
-      <PrimaryRail />
-      <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-        <PowerOneHeader onSignOut={handleSignOut} />
-        <main className="min-w-0 flex-1 overflow-y-auto bg-white">{children}</main>
+    <PresentationContext.Provider value={presenting}>
+      <div className="flex h-svh w-full overflow-hidden bg-white text-zinc-950">
+        {!presenting && <PrimaryRail pathname={pathname} />}
+        <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+          {!presenting && (
+            <PowerOneHeader onSignOut={handleSignOut} onPresent={() => setPresenting(true)} />
+          )}
+          <main className="min-w-0 flex-1 overflow-y-auto bg-white">{children}</main>
+        </div>
+        {presenting && (
+          <button
+            type="button"
+            onClick={() => setPresenting(false)}
+            className="fixed right-4 top-4 z-[1000] flex items-center gap-2 rounded-full bg-zinc-900/90 px-4 py-2 text-xs font-semibold text-white shadow-lg backdrop-blur transition-colors hover:bg-zinc-900"
+            title="Exit presentation (Esc)"
+          >
+            <CloseIcon className="size-3.5" />
+            Exit · Esc
+          </button>
+        )}
       </div>
-    </div>
+    </PresentationContext.Provider>
   );
 }
 
@@ -327,6 +372,33 @@ function ProcessIcon(props: SVGProps<SVGSVGElement>) {
       <circle cx="19" cy="7" r="2" fill="currentColor" />
       <circle cx="5" cy="17" r="2" fill="currentColor" />
       <circle cx="19" cy="17" r="2" fill="currentColor" />
+    </svg>
+  );
+}
+
+function PresentIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" {...props}>
+      <rect x="3" y="4" width="18" height="13" rx="2" stroke="currentColor" strokeWidth="2" />
+      <path d="M9 21h6M12 17v4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+      <path d="m10.5 8 4 2.5-4 2.5V8Z" fill="currentColor" />
+    </svg>
+  );
+}
+
+function CloseIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" {...props}>
+      <path d="M6 6l12 12M18 6 6 18" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function PlusIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" {...props}>
+      <rect x="3.5" y="3.5" width="17" height="17" rx="4" stroke="currentColor" strokeWidth="2" />
+      <path d="M12 8v8M8 12h8" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
     </svg>
   );
 }
