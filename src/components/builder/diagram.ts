@@ -143,6 +143,8 @@ export type CanonicalNode = {
   id: string;
   type: CanonicalNodeType;
   label: string;
+  /** Optional swimlane (actor/role) this step belongs to. */
+  lane?: string;
 };
 
 export type CanonicalEdge = {
@@ -155,7 +157,19 @@ export type CanonicalEdge = {
 export type CanonicalDiagram = {
   nodes: CanonicalNode[];
   edges: CanonicalEdge[];
+  /** Optional ordered swimlanes (top to bottom). */
+  lanes?: string[];
 };
+
+/** The lane names referenced by a canonical diagram, in order. */
+function canonicalLaneNames(diagram: CanonicalDiagram): string[] {
+  if (diagram.lanes && diagram.lanes.length) return diagram.lanes;
+  const seen: string[] = [];
+  for (const n of diagram.nodes) {
+    if (n.lane && !seen.includes(n.lane)) seen.push(n.lane);
+  }
+  return seen;
+}
 
 /* ── Brand palette (matches the rest of Process Hub) ── */
 const BRAND_BLUE = "#00037C";
@@ -220,15 +234,25 @@ export function makeId(prefix: string) {
  * ────────────────────────────────────────────────────────────────────────── */
 
 export function canonicalToBuilder(diagram: CanonicalDiagram): DiagramDoc {
+  // Build any swimlanes the diagram references and map names → lane ids.
+  const laneNames = canonicalLaneNames(diagram);
+  const laneNodes: LaneNode[] = laneNames.map((name, i) => {
+    const lane = createLane(i, LANE.defaultWidth, i * (LANE.defaultHeight + LANE.gap));
+    return { ...lane, data: { ...lane.data, label: name } };
+  });
+  const laneIdByName = new Map(laneNames.map((name, i) => [name, laneNodes[i].id]));
+
   const nodes: BuilderNode[] = diagram.nodes.map((n) => {
     const style = TYPE_STYLE[n.type] ?? TYPE_STYLE.task;
     const size = DEFAULT_SIZE[style.shape];
+    const laneId = n.lane ? laneIdByName.get(n.lane) : undefined;
     return {
       id: n.id,
       type: "custom",
       position: { x: 0, y: 0 },
       width: size.width,
       height: size.height,
+      ...(laneId ? { parentId: laneId, extent: "parent" as const } : {}),
       data: {
         texts: [n.label],
         shape: style.shape,
@@ -243,7 +267,7 @@ export function canonicalToBuilder(diagram: CanonicalDiagram): DiagramDoc {
     styledEdge(e.id, e.source, e.target, e.label),
   );
 
-  return { nodes, edges };
+  return { nodes: [...laneNodes, ...nodes], edges };
 }
 
 /** A default-styled edge (smoothstep, grey, colour-following arrow marker). */
@@ -293,11 +317,22 @@ export function builderToCanonical(nodes: Node[], edges: Edge[]): CanonicalDiagr
   const ids = new Set(custom.map((n) => n.id));
   const incoming = new Set(edges.map((e) => e.target));
   const outgoing = new Set(edges.map((e) => e.source));
+
+  const lanes = nodes.filter(isLane);
+  const laneNameById = new Map(lanes.map((l) => [l.id, (l.data as LaneData).label]));
+  const laneNames = lanes
+    .slice()
+    .sort((a, b) => a.position.y - b.position.y)
+    .map((l) => (l.data as LaneData).label);
+
   return {
     nodes: custom.map((n) => ({
       id: n.id,
       type: inferType(n, incoming, outgoing),
       label: (n.data as BuilderNodeData).texts?.[0] ?? "",
+      ...(n.parentId && laneNameById.has(n.parentId)
+        ? { lane: laneNameById.get(n.parentId) }
+        : {}),
     })),
     edges: edges
       .filter((e) => ids.has(e.source) && ids.has(e.target))
@@ -307,6 +342,7 @@ export function builderToCanonical(nodes: Node[], edges: Edge[]): CanonicalDiagr
         target: e.target,
         label: typeof e.label === "string" ? e.label : undefined,
       })),
+    ...(laneNames.length ? { lanes: laneNames } : {}),
   };
 }
 
@@ -321,16 +357,42 @@ export function applyCanonical(
   canonical: CanonicalDiagram,
 ): { nodes: Node[]; edges: Edge[]; relayout: boolean } {
   const prevCustom = new Map(prevNodes.filter((n) => n.type === "custom").map((n) => [n.id, n]));
-  const others = prevNodes.filter((n) => n.type !== "custom"); // lanes, media
+  const prevLanes = prevNodes.filter(isLane);
+  const media = prevNodes.filter(isMedia);
   let relayout = false;
+
+  // Reconcile swimlanes: reuse an existing lane when the name matches, else make one.
+  const laneNames = canonicalLaneNames(canonical);
+  const laneByName = new Map(prevLanes.map((l) => [(l.data as LaneData).label, l]));
+  const laneIdByName = new Map<string, string>();
+  const laneNodes: Node[] = laneNames.map((name, i) => {
+    const existing = laneByName.get(name);
+    if (existing) {
+      laneIdByName.set(name, existing.id);
+      return existing;
+    }
+    relayout = true;
+    const lane = createLane(i, LANE.defaultWidth, 0);
+    const made: Node = { ...lane, data: { ...lane.data, label: name } };
+    laneIdByName.set(name, made.id);
+    return made;
+  });
+  const finalLanes = laneNames.length ? laneNodes : prevLanes;
 
   const nodes: Node[] = canonical.nodes.map((cn) => {
     const prev = prevCustom.get(cn.id);
+    const laneId = cn.lane ? laneIdByName.get(cn.lane) : undefined;
     if (prev) {
       const d = prev.data as BuilderNodeData;
       const texts = d.texts && d.texts.length ? [...d.texts] : [""];
       texts[0] = cn.label;
-      return { ...prev, data: { ...d, texts } };
+      const node: Node = { ...prev, data: { ...d, texts } };
+      if (laneId !== prev.parentId) {
+        relayout = true;
+        node.parentId = laneId;
+        node.extent = laneId ? "parent" : undefined;
+      }
+      return node;
     }
     relayout = true;
     const style = TYPE_STYLE[cn.type] ?? TYPE_STYLE.task;
@@ -341,6 +403,7 @@ export function applyCanonical(
       position: { x: 0, y: 0 },
       width: size.width,
       height: size.height,
+      ...(laneId ? { parentId: laneId, extent: "parent" as const } : {}),
       data: { texts: [cn.label], shape: style.shape, color: style.color, fill: style.fill, dashed: style.dashed },
     };
   });
@@ -353,7 +416,7 @@ export function applyCanonical(
     return styledEdge(ce.id, ce.source, ce.target, ce.label);
   });
 
-  return { nodes: [...others, ...nodes], edges, relayout };
+  return { nodes: [...media, ...finalLanes, ...nodes], edges, relayout };
 }
 
 /* ──────────────────────────────────────────────────────────────────────────
@@ -404,6 +467,98 @@ export function layoutDiagram(
       position: { x: pos.x - size.width / 2, y: pos.y - size.height / 2 },
     };
   });
+}
+
+/**
+ * Swimlane-aware layout. dagre (left-to-right) decides the logical column order
+ * from the edges; each step is then placed in its lane's row at its column's x,
+ * vertically centred. Columns line up across lanes, and lanes are resized and
+ * stacked to fit. Nodes with no lane are floated in a strip above the lanes.
+ */
+export function layoutLaned(nodes: Node[], edges: Edge[]): Node[] {
+  const lanes = nodes.filter(isLane);
+  if (lanes.length === 0) return layoutDiagram(nodes, edges);
+  const media = nodes.filter(isMedia);
+  const flow = nodes.filter((n) => n.type === "custom");
+
+  // 1) Column order via a left-to-right dagre pass over the flow graph.
+  const g = new dagre.graphlib.Graph();
+  g.setDefaultEdgeLabel(() => ({}));
+  g.setGraph({ rankdir: "LR", nodesep: 40, ranksep: 80, marginx: 0, marginy: 0 });
+  const size = new Map<string, { width: number; height: number }>();
+  flow.forEach((n) => {
+    const s = nodeSize(n);
+    size.set(n.id, s);
+    g.setNode(n.id, s);
+  });
+  edges.forEach((e) => {
+    if (size.has(e.source) && size.has(e.target)) g.setEdge(e.source, e.target);
+  });
+  dagre.layout(g);
+
+  // 2) Bucket each node's dagre x into a column index (same rank ⇒ same x in LR).
+  const xOf = (id: string) => Math.round(g.node(id)?.x ?? 0);
+  const columnXs = [...new Set(flow.map((n) => xOf(n.id)))].sort((a, b) => a - b);
+  const colIndex = new Map(columnXs.map((x, i) => [x, i]));
+  const colOf = (id: string) => colIndex.get(xOf(id)) ?? 0;
+
+  // 3) Column widths and x offsets (aligned across all lanes).
+  const COL_GAP = 64;
+  const colWidth = columnXs.map(() => 120);
+  flow.forEach((n) => {
+    const c = colOf(n.id);
+    colWidth[c] = Math.max(colWidth[c], size.get(n.id)!.width);
+  });
+  const colX: number[] = [];
+  let cursor = LANE.headerWidth + 40;
+  columnXs.forEach((_, i) => {
+    colX[i] = cursor;
+    cursor += colWidth[i] + COL_GAP;
+  });
+  const laneWidth = Math.max(620, cursor + 8);
+
+  // 4) Lane heights (fit tallest child) and vertical stacking.
+  const laneOrder = [...lanes].sort((a, b) => a.position.y - b.position.y);
+  const laneHeight = new Map<string, number>();
+  laneOrder.forEach((l) => {
+    const tallest = Math.max(0, ...flow.filter((n) => n.parentId === l.id).map((n) => size.get(n.id)!.height));
+    laneHeight.set(l.id, Math.max(LANE.defaultHeight, tallest + 80));
+  });
+
+  let y = 0;
+  const newLanes: Node[] = laneOrder.map((l) => {
+    const h = laneHeight.get(l.id)!;
+    const node: Node = { ...l, position: { x: 0, y }, width: laneWidth, height: h };
+    y += h + LANE.gap;
+    return node;
+  });
+  const lanesBottom = y;
+
+  // 5) Place each step at its column x, centred in its lane (relative coords);
+  //    unlaned steps float in a strip above the lanes (absolute coords).
+  let floatX = LANE.headerWidth + 40;
+  const newFlow: Node[] = flow.map((n) => {
+    const c = colOf(n.id);
+    const s = size.get(n.id)!;
+    if (n.parentId && laneHeight.has(n.parentId)) {
+      const h = laneHeight.get(n.parentId)!;
+      return { ...n, extent: "parent" as const, position: { x: colX[c], y: (h - s.height) / 2 } };
+    }
+    const x = floatX;
+    floatX += s.width + COL_GAP;
+    return { ...n, parentId: undefined, extent: undefined, position: { x, y: lanesBottom + 24 } };
+  });
+
+  return [...media, ...newLanes, ...newFlow];
+}
+
+/** Pick the right layout: swimlane-aware when lanes exist, else plain dagre. */
+export function autoLayout(
+  nodes: Node[],
+  edges: Edge[],
+  direction: "TB" | "LR" = "TB",
+): Node[] {
+  return nodes.some(isLane) ? layoutLaned(nodes, edges) : layoutDiagram(nodes, edges, direction);
 }
 
 /* ──────────────────────────────────────────────────────────────────────────
@@ -509,8 +664,17 @@ export function coerceCanonical(value: unknown): CanonicalDiagram | null {
     const type = validTypes.includes(n.type as CanonicalNodeType)
       ? (n.type as CanonicalNodeType)
       : "task";
-    nodes.push({ id: n.id, type, label: n.label });
+    nodes.push({
+      id: n.id,
+      type,
+      label: n.label,
+      ...(typeof n.lane === "string" && n.lane.trim() ? { lane: n.lane.trim() } : {}),
+    });
   }
+
+  const lanes = Array.isArray(v.lanes)
+    ? (v.lanes.filter((l) => typeof l === "string" && l.trim()) as string[])
+    : undefined;
 
   const ids = new Set(nodes.map((n) => n.id));
   const edges: CanonicalEdge[] = [];
@@ -528,5 +692,5 @@ export function coerceCanonical(value: unknown): CanonicalDiagram | null {
   }
 
   if (nodes.length === 0) return null;
-  return { nodes, edges };
+  return { nodes, edges, ...(lanes && lanes.length ? { lanes } : {}) };
 }
