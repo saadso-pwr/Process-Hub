@@ -33,7 +33,6 @@ import {
   isLane,
   isMedia,
   layoutDiagram,
-  makeId,
   normalizePopup,
   parseProcessText,
   coerceCanonical,
@@ -52,7 +51,6 @@ import {
 const FF = "'Manrope', sans-serif";
 const BRAND_BLUE = "#00037C";
 const ACCENT = "#31BAF0";
-const LIB_KEY = "process-hub.builder.library.v1";
 const AI_PREFS_KEY = "process-hub.builder.ai-prefs.v1";
 
 type ChatMsg = { role: "user" | "assistant"; content: string; applied?: boolean };
@@ -209,7 +207,8 @@ function orderNodes(nodes: Node[]): Node[] {
 }
 
 /* ──────────────────────────────────────────────────────────────────────────
- * Library store (localStorage) — folders + saved/archived diagrams.
+ * Library — folders + saved/archived diagrams, persisted in Postgres via
+ * /api/library. (AI preferences stay in localStorage.)
  * ────────────────────────────────────────────────────────────────────────── */
 type LibraryItem = {
   id: string;
@@ -229,62 +228,44 @@ function buildDoc(text: string): DiagramDoc {
   return { nodes: layoutDiagram(built.nodes, built.edges), edges: built.edges };
 }
 
-function seededStore(): LibraryStore {
-  return {
-    folders: ["Neos Intelligence", "Internal Processes", "Unsorted"],
-    items: [
-      {
-        id: makeId("lib"),
-        name: "Hire to Retire Process Map",
-        folder: "Unsorted",
-        archived: false,
-        doc: buildDoc(SAMPLE_TEXT),
-      },
-      {
-        id: makeId("lib"),
-        name: "AI Lab Pilot Conceptual Model",
-        folder: "Unsorted",
-        archived: false,
-        doc: buildDoc(
-          "Start: Idea\nDefine hypothesis\nRun pilot\nDecision: Promising?\n- Yes: Scale up\n- No: Archive learnings\nEnd: Decision logged",
-        ),
-      },
-      {
-        id: makeId("lib"),
-        name: "Physical AI Conceptual Model",
-        folder: "Unsorted",
-        archived: false,
-        doc: buildDoc(
-          "Start: Sensor input\nPerceive\nPlan\nAct\nEnd: Outcome",
-        ),
-      },
-    ],
-  };
-}
-
-function readStore(): LibraryStore {
-  try {
-    const raw = window.localStorage.getItem(LIB_KEY);
-    if (!raw) {
-      const seeded = seededStore();
-      window.localStorage.setItem(LIB_KEY, JSON.stringify(seeded));
-      return seeded;
-    }
-    return JSON.parse(raw) as LibraryStore;
-  } catch {
-    return EMPTY_STORE;
-  }
-}
-
-function writeStore(store: LibraryStore): boolean {
-  try {
-    window.localStorage.setItem(LIB_KEY, JSON.stringify(store));
-    return true;
-  } catch {
-    // Most likely the localStorage quota (large PDFs/images).
-    return false;
-  }
-}
+const libApi = {
+  async load(): Promise<LibraryStore> {
+    const res = await fetch("/api/library");
+    if (!res.ok) throw new Error("load failed");
+    return (await res.json()) as LibraryStore;
+  },
+  async addFolder(name: string): Promise<string> {
+    const res = await fetch("/api/library/folders", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name }),
+    });
+    if (!res.ok) throw new Error("folder failed");
+    return (await res.json()).name as string;
+  },
+  async create(input: { name: string; folder: string; kind: string; doc: DiagramDoc }): Promise<LibraryItem> {
+    const res = await fetch("/api/library/diagrams", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input),
+    });
+    if (!res.ok) throw new Error("create failed");
+    return (await res.json()) as LibraryItem;
+  },
+  async update(id: string, patch: Partial<Pick<LibraryItem, "name" | "folder" | "archived" | "doc">>): Promise<LibraryItem> {
+    const res = await fetch(`/api/library/diagrams/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(patch),
+    });
+    if (!res.ok) throw new Error("update failed");
+    return (await res.json()) as LibraryItem;
+  },
+  async remove(id: string): Promise<void> {
+    const res = await fetch(`/api/library/diagrams/${id}`, { method: "DELETE" });
+    if (!res.ok) throw new Error("delete failed");
+  },
+};
 
 /** Read a File as a data URL. */
 function readAsDataUrl(file: File): Promise<string> {
@@ -363,19 +344,17 @@ function BuilderInner() {
   const [prefs, setPrefs] = useState<AiPrefs>(DEFAULT_PREFS);
   const [settingsOpen, setSettingsOpen] = useState(false);
 
-  const ensureLib = useCallback(() => {
-    if (lib.ready) return lib.store;
-    const store = readStore();
-    setLib({ store, ready: true });
-    return store;
-  }, [lib]);
-
-  // Populate the library + AI prefs on mount (client-only → no SSR mismatch).
+  // Load the library from Postgres + AI prefs from localStorage on mount.
   useEffect(() => {
-    /* eslint-disable react-hooks/set-state-in-effect */
-    setLib({ store: readStore(), ready: true });
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setPrefs(readPrefs());
-    /* eslint-enable react-hooks/set-state-in-effect */
+    libApi
+      .load()
+      .then((store) => setLib({ store, ready: true }))
+      .catch(() => {
+        setLib({ store: EMPTY_STORE, ready: true });
+        setGenNote("Couldn't reach the database. Run `npm run db:up` and `npm run db:migrate`.");
+      });
   }, []);
 
   // Check whether a live AI key is configured the first time the panel opens.
@@ -387,12 +366,16 @@ function BuilderInner() {
       .catch(() => setAiStatus({ configured: false, envVar: "ANTHROPIC_API_KEY", model: "", provider: "anthropic" }));
   }, [aiOpen, aiStatus]);
 
-  const commitLib = useCallback((store: LibraryStore) => {
-    const ok = writeStore(store);
-    setLib({ store, ready: true });
-    if (!ok) setGenNote("Couldn't save — the file may be too large for browser storage.");
-    return ok;
-  }, []);
+  // Update local library state without a round-trip.
+  const patchLibState = useCallback(
+    (fn: (s: LibraryStore) => LibraryStore) => setLib((l) => ({ store: fn(l.store), ready: true })),
+    [],
+  );
+
+  // Re-fit the diagram when entering presentation mode.
+  useEffect(() => {
+    if (presenting) window.setTimeout(() => fitView({ padding: 0.12, duration: 400 }), 80);
+  }, [presenting, fitView]);
 
   // Re-fit the diagram when entering presentation mode.
   useEffect(() => {
@@ -657,24 +640,24 @@ function BuilderInner() {
     [nodes, edges],
   );
 
-  const save = useCallback(() => {
-    const store = ensureLib();
+  const save = useCallback(async () => {
     const name = title.trim() || "Untitled diagram";
-    if (currentItemId) {
-      const items = store.items.map((it) =>
-        it.id === currentItemId ? { ...it, name, doc: currentDoc() } : it,
-      );
-      if (commitLib({ ...store, items })) setGenNote(`Saved "${name}".`);
-      return;
-    }
-    // First save → drop it into the last folder; rename anytime via the title field.
-    const folder = store.folders[store.folders.length - 1] ?? "Unsorted";
-    const item: LibraryItem = { id: makeId("lib"), name, folder, archived: false, kind: "flow", doc: currentDoc() };
-    if (commitLib({ ...store, items: [...store.items, item] })) {
+    try {
+      if (currentItemId) {
+        const updated = await libApi.update(currentItemId, { name, doc: currentDoc() });
+        patchLibState((s) => ({ ...s, items: s.items.map((it) => (it.id === updated.id ? updated : it)) }));
+        setGenNote(`Saved "${name}".`);
+        return;
+      }
+      const folder = lib.store.folders[lib.store.folders.length - 1] ?? "Unsorted";
+      const item = await libApi.create({ name, folder, kind: "flow", doc: currentDoc() });
+      patchLibState((s) => ({ ...s, items: [...s.items, item] }));
       setCurrentItemId(item.id);
       setGenNote(`Saved "${name}" to ${folder}.`);
+    } catch {
+      setGenNote("Couldn't save to the database.");
     }
-  }, [commitLib, currentDoc, currentItemId, ensureLib, title]);
+  }, [currentDoc, currentItemId, lib.store.folders, patchLibState, title]);
 
   const openItem = useCallback(
     (item: LibraryItem) => {
@@ -688,32 +671,32 @@ function BuilderInner() {
     [fitView, setEdges, setNodes],
   );
 
-  const newFolder = useCallback(() => {
-    const store = ensureLib();
+  const newFolder = useCallback(async () => {
     const name = window.prompt("New folder name:");
-    if (!name || store.folders.includes(name)) return;
-    commitLib({ ...store, folders: [...store.folders, name] });
-  }, [commitLib, ensureLib]);
+    if (!name || lib.store.folders.includes(name)) return;
+    try {
+      const created = await libApi.addFolder(name);
+      patchLibState((s) => (s.folders.includes(created) ? s : { ...s, folders: [...s.folders, created] }));
+    } catch {
+      setGenNote("Couldn't create the folder.");
+    }
+  }, [lib.store.folders, patchLibState]);
 
   const newInFolder = useCallback(
-    (folder: string) => {
-      const store = ensureLib();
-      const item: LibraryItem = {
-        id: makeId("lib"),
-        name: "Untitled diagram",
-        folder,
-        archived: false,
-        kind: "flow",
-        doc: { nodes: [], edges: [] },
-      };
-      commitLib({ ...store, items: [...store.items, item] });
-      setNodes([]);
-      setEdges([]);
-      setSelectedId(null);
-      setCurrentItemId(item.id);
-      setTitle("Untitled diagram");
+    async (folder: string) => {
+      try {
+        const item = await libApi.create({ name: "Untitled diagram", folder, kind: "flow", doc: { nodes: [], edges: [] } });
+        patchLibState((s) => ({ ...s, items: [...s.items, item] }));
+        setNodes([]);
+        setEdges([]);
+        setSelectedId(null);
+        setCurrentItemId(item.id);
+        setTitle("Untitled diagram");
+      } catch {
+        setGenNote("Couldn't create the diagram.");
+      }
     },
-    [commitLib, ensureLib, setEdges, setNodes],
+    [patchLibState, setEdges, setNodes],
   );
 
   /* ── Upload a PDF / PNG / SVG into a folder as a markup-able diagram ── */
@@ -743,42 +726,48 @@ function BuilderInner() {
       const mediaNode = createMedia(dataUrl, mediaKind, name, size.width, size.height);
       const doc: DiagramDoc = { nodes: [mediaNode], edges: [] };
 
-      const store = ensureLib();
-      const folder = pendingFolderRef.current;
-      const item: LibraryItem = { id: makeId("lib"), name, folder, archived: false, kind: "media", doc };
-      if (!commitLib({ ...store, items: [...store.items, item] })) return;
-
-      setNodes(doc.nodes);
-      setEdges([]);
-      setSelectedId(null);
-      setSelectedEdgeId(null);
-      setCurrentItemId(item.id);
-      setTitle(name);
-      setGenNote(`Imported "${file.name}". Add shapes or arrows to mark it up.`);
-      window.setTimeout(() => fitView({ padding: 0.12, duration: 400 }), 80);
+      try {
+        const item = await libApi.create({ name, folder: pendingFolderRef.current, kind: "media", doc });
+        patchLibState((s) => ({ ...s, items: [...s.items, item] }));
+        setNodes(doc.nodes);
+        setEdges([]);
+        setSelectedId(null);
+        setSelectedEdgeId(null);
+        setCurrentItemId(item.id);
+        setTitle(name);
+        setGenNote(`Imported "${file.name}". Add shapes or arrows to mark it up.`);
+        window.setTimeout(() => fitView({ padding: 0.12, duration: 400 }), 80);
+      } catch {
+        setGenNote("Couldn't save the upload to the database.");
+      }
     },
-    [commitLib, ensureLib, fitView, setEdges, setNodes],
+    [fitView, patchLibState, setEdges, setNodes],
   );
 
   const setArchived = useCallback(
-    (itemId: string, archived: boolean) => {
-      const store = ensureLib();
-      commitLib({
-        ...store,
-        items: store.items.map((it) => (it.id === itemId ? { ...it, archived } : it)),
-      });
+    async (itemId: string, archived: boolean) => {
+      try {
+        const updated = await libApi.update(itemId, { archived });
+        patchLibState((s) => ({ ...s, items: s.items.map((it) => (it.id === updated.id ? updated : it)) }));
+      } catch {
+        setGenNote("Couldn't update the diagram.");
+      }
     },
-    [commitLib, ensureLib],
+    [patchLibState],
   );
 
   const deleteItem = useCallback(
-    (itemId: string) => {
-      const store = ensureLib();
+    async (itemId: string) => {
       if (!window.confirm("Delete this diagram permanently?")) return;
-      commitLib({ ...store, items: store.items.filter((it) => it.id !== itemId) });
-      if (currentItemId === itemId) setCurrentItemId(null);
+      try {
+        await libApi.remove(itemId);
+        patchLibState((s) => ({ ...s, items: s.items.filter((it) => it.id !== itemId) }));
+        if (currentItemId === itemId) setCurrentItemId(null);
+      } catch {
+        setGenNote("Couldn't delete the diagram.");
+      }
     },
-    [commitLib, currentItemId, ensureLib],
+    [currentItemId, patchLibState],
   );
 
   /* ── Inspector edits ── */
@@ -901,7 +890,7 @@ function BuilderInner() {
           store={lib.store}
           ready={lib.ready}
           currentItemId={currentItemId}
-          onReveal={ensureLib}
+          onReveal={() => {}}
           onTemplate={loadTemplate}
           onFresh={freshDiagram}
           onAi={() => setAiOpen(true)}

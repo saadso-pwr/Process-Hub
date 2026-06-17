@@ -4,19 +4,35 @@ This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-
 
 ## Getting Started
 
-First, run the development server:
+### 1. Database (Postgres via Docker)
+
+The process builder library (diagrams, folders, uploaded media) is persisted in
+Postgres through Prisma.
+
+```bash
+cp .env.example .env        # adjust DATABASE_URL if needed (default port 5433)
+npm install                 # runs `prisma generate` automatically
+npm run db:up               # start Postgres (docker compose)
+npm run db:migrate          # apply migrations (creates the tables)
+```
+
+The default `DATABASE_URL` points at the bundled docker-compose Postgres on
+`localhost:5433` (5433 avoids clashing with any local Postgres already on 5432).
+The library seeds a few sample diagrams the first time it's loaded.
+
+Useful scripts: `npm run db:down`, `npm run db:studio` (Prisma Studio),
+`npm run db:migrate:dev` (create a new migration during development).
+
+### 2. Dev server
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
 Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+
+> Optional: set `ANTHROPIC_API_KEY` in `.env` to enable live "Converge with AI";
+> without it the builder falls back to a built-in text parser.
 
 You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
 

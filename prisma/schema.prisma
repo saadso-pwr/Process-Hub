@@ -1,0 +1,39 @@
+// Process Hub — builder library persistence (diagrams, folders, embedded media).
+// Client is generated to src/generated/prisma (Prisma 7 prisma-client generator).
+// Docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+/// A library folder (e.g. "Neos Intelligence"). Kept as its own table so empty
+/// folders persist and ordering is stable.
+model Folder {
+  id        String   @id @default(uuid())
+  name      String   @unique
+  position  Int      @default(0)
+  createdAt DateTime @default(now())
+
+  @@map("folders")
+}
+
+/// A saved diagram. `doc` holds the full { nodes, edges } JSON the canvas
+/// renders — including any uploaded media (PDF/PNG/SVG) as data URLs.
+model Diagram {
+  id        String   @id @default(uuid())
+  name      String
+  folder    String
+  archived  Boolean  @default(false)
+  kind      String   @default("flow") // "flow" | "media"
+  doc       Json
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([folder])
+  @@map("diagrams")
+}
