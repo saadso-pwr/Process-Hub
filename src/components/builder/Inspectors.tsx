@@ -16,22 +16,34 @@ import {
   type LineStyle,
 } from "./kit";
 import {
+  makeId,
   normalizePopup,
+  SWIMLANE,
+  swimlaneBoardHeight,
+  swimlaneBoardWidth,
+  swimlaneRowHeight,
+  swimlaneRowsHeight,
+  swimlaneStageWidth,
+  swimlaneStagesWidth,
   type NodePopup,
   type PopupLink,
   type BuilderNode,
   type BuilderNodeData,
   type BuilderEdge,
   type LaneData,
+  type SwimlaneData,
+  type SwimlaneItem,
 } from "./diagram";
 
 export function LaneInspector(props: {
   node: Node<LaneData>;
   onPatch: (patch: Partial<LaneData>) => void;
+  onResize: (size: Partial<{ width: number; height: number }>) => void;
   onDelete: () => void;
   onClose: () => void;
 }) {
   const { node, onPatch } = props;
+  const size = readNodeSize(node, { width: 620, height: 200 });
   return (
     <div
       style={{
@@ -94,6 +106,14 @@ export function LaneInspector(props: {
         </div>
       </Field>
 
+      <DimensionFields
+        width={size.width}
+        height={size.height}
+        minWidth={520}
+        minHeight={130}
+        onChange={props.onResize}
+      />
+
       <p style={{ margin: 0, fontSize: 11, color: "#aaa", lineHeight: 1.5 }}>
         Drag steps onto this lane — they attach and snap to the lane&apos;s centre line. Resize the
         lane with the handles, and run Tidy to space the steps evenly.
@@ -118,6 +138,331 @@ export function LaneInspector(props: {
         Delete lane
       </button>
     </div>
+  );
+}
+
+export function SwimlaneInspector(props: {
+  node: Node<SwimlaneData>;
+  onPatch: (patch: Partial<SwimlaneData>) => void;
+  onResize: (size: Partial<{ width: number; height: number }>) => void;
+  onDelete: () => void;
+  onClose: () => void;
+}) {
+  const { node, onPatch } = props;
+  const data = normalizeSwimlaneData(node.data);
+  const size = readNodeSize(node, {
+    width: swimlaneBoardWidth(data),
+    height: swimlaneBoardHeight(data),
+  });
+  const minWidth = swimlaneBoardWidth(data);
+  const minHeight = swimlaneBoardHeight(data);
+
+  const patchRows = (rows: SwimlaneItem[]) => {
+    onPatch({ rows });
+    props.onResize({ height: data.stageHeaderHeight + swimlaneRowsHeight(rows) });
+  };
+  const patchStages = (stages: SwimlaneItem[]) => {
+    onPatch({ stages });
+    props.onResize({ width: data.rowHeaderWidth + swimlaneStagesWidth(stages) });
+  };
+
+  return (
+    <div
+      style={{
+        width: 300,
+        flexShrink: 0,
+        borderLeft: "1px solid #ececec",
+        background: "#fff",
+        padding: 16,
+        display: "flex",
+        flexDirection: "column",
+        gap: 16,
+        overflowY: "auto",
+      }}
+    >
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <p style={{ margin: 0, fontSize: 14, fontWeight: 700, color: "#1f1f1b" }}>Edit swimlane board</p>
+        <button
+          type="button"
+          onClick={props.onClose}
+          style={{ border: "none", background: "transparent", cursor: "pointer", fontSize: 18, color: "#999", lineHeight: 1 }}
+          aria-label="Close"
+        >
+          ×
+        </button>
+      </div>
+
+      <Field label="Board title">
+        <input
+          value={data.title}
+          onChange={(e) => onPatch({ title: e.target.value })}
+          style={inputStyle}
+        />
+      </Field>
+
+      <Field label="Board colour">
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center" }}>
+          {COLOR_SWATCHES.map((c) => (
+            <button
+              key={c}
+              type="button"
+              onClick={() => onPatch({ color: c })}
+              title={c}
+              style={{
+                width: 24,
+                height: 24,
+                borderRadius: 6,
+                background: c,
+                border: data.color === c ? "2px solid #1f1f1b" : "1px solid #ddd",
+                cursor: "pointer",
+              }}
+            />
+          ))}
+          <input
+            type="color"
+            value={data.color}
+            onChange={(e) => onPatch({ color: e.target.value })}
+            style={{ width: 28, height: 28, padding: 0, border: "1px solid #ddd", borderRadius: 6, cursor: "pointer", background: "#fff" }}
+            title="Custom colour"
+          />
+        </div>
+      </Field>
+
+      <DimensionFields
+        width={size.width}
+        height={size.height}
+        minWidth={minWidth}
+        minHeight={minHeight}
+        onChange={props.onResize}
+      />
+
+      <AxisEditor
+        label="Role rows"
+        addLabel="+ Add row"
+        itemPlaceholder="Role name"
+        items={data.rows}
+        onChange={patchRows}
+        makeItemLabel={(index) => `Role ${index + 1}`}
+        moveBackTitle="Move row up"
+        moveForwardTitle="Move row down"
+        moveBackGlyph="↑"
+        moveForwardGlyph="↓"
+        dimensionLabel="H"
+        dimensionTitle="Row height"
+        dimensionKey="height"
+        minDimension={SWIMLANE.minRowHeight}
+        defaultDimension={SWIMLANE.defaultRowHeight}
+      />
+
+      <AxisEditor
+        label="Stages"
+        addLabel="+ Add stage"
+        itemPlaceholder="Stage name"
+        items={data.stages}
+        onChange={patchStages}
+        makeItemLabel={(index) => `Stage ${index + 1}`}
+        moveBackTitle="Move stage left"
+        moveForwardTitle="Move stage right"
+        moveBackGlyph="←"
+        moveForwardGlyph="→"
+        dimensionLabel="W"
+        dimensionTitle="Column width"
+        dimensionKey="width"
+        minDimension={SWIMLANE.minStageWidth}
+        defaultDimension={SWIMLANE.defaultStageWidth}
+      />
+
+      <p style={{ margin: 0, fontSize: 11, color: "#aaa", lineHeight: 1.5 }}>
+        Drag steps onto the board to snap them into the nearest role row and stage column.
+      </p>
+
+      <button
+        type="button"
+        onClick={props.onDelete}
+        style={{
+          marginTop: "auto",
+          fontFamily: FF,
+          fontSize: 13,
+          fontWeight: 600,
+          padding: "9px 12px",
+          borderRadius: 8,
+          border: "1px solid #f0caca",
+          background: "#fdf2f2",
+          color: "#9a2a2a",
+          cursor: "pointer",
+        }}
+      >
+        Delete board
+      </button>
+    </div>
+  );
+}
+
+function normalizeSwimlaneData(data: SwimlaneData): SwimlaneData {
+  return {
+    ...data,
+    title: data.title || "Swimlane",
+    color: data.color || BRAND_BLUE,
+    rows: data.rows?.length
+      ? data.rows.map((row) => ({ ...row, height: swimlaneRowHeight(row) }))
+      : [{ id: makeId("row"), label: "Role 1", height: SWIMLANE.defaultRowHeight }],
+    stages: data.stages?.length
+      ? data.stages.map((stage) => ({ ...stage, width: swimlaneStageWidth(stage) }))
+      : [{ id: makeId("stage"), label: "Stage 1", width: SWIMLANE.defaultStageWidth }],
+    rowHeaderWidth: data.rowHeaderWidth || SWIMLANE.rowHeaderWidth,
+    stageHeaderHeight: data.stageHeaderHeight || SWIMLANE.stageHeaderHeight,
+  };
+}
+
+function AxisEditor({
+  label,
+  addLabel,
+  itemPlaceholder,
+  items,
+  onChange,
+  makeItemLabel,
+  moveBackTitle,
+  moveForwardTitle,
+  moveBackGlyph,
+  moveForwardGlyph,
+  dimensionLabel,
+  dimensionTitle,
+  dimensionKey,
+  minDimension,
+  defaultDimension,
+}: {
+  label: string;
+  addLabel: string;
+  itemPlaceholder: string;
+  items: SwimlaneItem[];
+  onChange: (items: SwimlaneItem[]) => void;
+  makeItemLabel: (index: number) => string;
+  moveBackTitle: string;
+  moveForwardTitle: string;
+  moveBackGlyph: string;
+  moveForwardGlyph: string;
+  dimensionLabel: string;
+  dimensionTitle: string;
+  dimensionKey: "width" | "height";
+  minDimension: number;
+  defaultDimension: number;
+}) {
+  const updateItem = (id: string, patch: Partial<SwimlaneItem>) =>
+    onChange(items.map((item) => (item.id === id ? { ...item, ...patch } : item)));
+  const moveItem = (index: number, delta: -1 | 1) => {
+    const target = index + delta;
+    if (target < 0 || target >= items.length) return;
+    const next = [...items];
+    [next[index], next[target]] = [next[target], next[index]];
+    onChange(next);
+  };
+
+  return (
+    <Field label={label}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        {items.map((item, index) => (
+          <div key={item.id} style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) 74px auto auto auto", gap: 5, alignItems: "center" }}>
+            <input
+              value={item.label}
+              onChange={(e) => updateItem(item.id, { label: e.target.value })}
+              placeholder={itemPlaceholder}
+              style={inputStyle}
+            />
+            <SizeInput
+              value={Math.round(Number(item[dimensionKey]) || defaultDimension)}
+              min={minDimension}
+              suffix={dimensionLabel}
+              ariaLabel={`${item.label || label} ${dimensionTitle}`}
+              title={dimensionTitle}
+              compact
+              onCommit={(next) => updateItem(item.id, { [dimensionKey]: next })}
+            />
+            <SmallIconButton
+              title={moveBackTitle}
+              disabled={index === 0}
+              onClick={() => moveItem(index, -1)}
+            >
+              {moveBackGlyph}
+            </SmallIconButton>
+            <SmallIconButton
+              title={moveForwardTitle}
+              disabled={index === items.length - 1}
+              onClick={() => moveItem(index, 1)}
+            >
+              {moveForwardGlyph}
+            </SmallIconButton>
+            <SmallIconButton
+              title="Delete"
+              disabled={items.length === 1}
+              onClick={() => onChange(items.filter((x) => x.id !== item.id))}
+            >
+              −
+            </SmallIconButton>
+          </div>
+        ))}
+        <button
+          type="button"
+          onClick={() =>
+            onChange([
+              ...items,
+              {
+                id: makeId(label.toLowerCase().includes("stage") ? "stage" : "row"),
+                label: makeItemLabel(items.length),
+                [dimensionKey]: defaultDimension,
+              },
+            ])
+          }
+          style={{
+            alignSelf: "flex-start",
+            fontFamily: FF,
+            fontSize: 12,
+            fontWeight: 600,
+            padding: "6px 10px",
+            borderRadius: 6,
+            border: `1px dashed ${BRAND_BLUE}`,
+            background: "#fff",
+            color: BRAND_BLUE,
+            cursor: "pointer",
+          }}
+        >
+          {addLabel}
+        </button>
+      </div>
+    </Field>
+  );
+}
+
+function SmallIconButton({
+  title,
+  disabled,
+  onClick,
+  children,
+}: {
+  title: string;
+  disabled?: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      title={title}
+      disabled={disabled}
+      onClick={onClick}
+      style={{
+        width: 26,
+        height: 30,
+        border: "1px solid #ddd",
+        background: disabled ? "#f7f7f7" : "#fff",
+        borderRadius: 6,
+        cursor: disabled ? "default" : "pointer",
+        color: disabled ? "#c3c3c3" : "#555",
+        fontFamily: FF,
+        fontWeight: 700,
+      }}
+    >
+      {children}
+    </button>
   );
 }
 
@@ -269,14 +614,114 @@ function AlignBtn({ title, onClick, children }: { title: string; onClick: () => 
   );
 }
 
+function readNodeSize(node: Node, fallback: { width: number; height: number }) {
+  return {
+    width: Math.round(typeof node.width === "number" ? node.width : node.measured?.width ?? fallback.width),
+    height: Math.round(typeof node.height === "number" ? node.height : node.measured?.height ?? fallback.height),
+  };
+}
+
+function DimensionFields({
+  width,
+  height,
+  minWidth,
+  minHeight,
+  onChange,
+}: {
+  width: number;
+  height: number;
+  minWidth: number;
+  minHeight: number;
+  onChange: (size: Partial<{ width: number; height: number }>) => void;
+}) {
+  return (
+    <Field label="Dimensions">
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+        <SizeInput value={width} min={minWidth} suffix="px" ariaLabel="Width" label="W" onCommit={(next) => onChange({ width: next })} />
+        <SizeInput value={height} min={minHeight} suffix="px" ariaLabel="Height" label="H" onCommit={(next) => onChange({ height: next })} />
+      </div>
+    </Field>
+  );
+}
+
+function SizeInput({
+  value,
+  min,
+  suffix,
+  ariaLabel,
+  label,
+  title,
+  compact,
+  onCommit,
+}: {
+  value: number;
+  min: number;
+  suffix: string;
+  ariaLabel: string;
+  label?: string;
+  title?: string;
+  compact?: boolean;
+  onCommit: (value: number) => void;
+}) {
+  const commit = (raw: string, clamp = true) => {
+    if (raw.trim() === "") return;
+    const parsed = Number(raw);
+    if (!Number.isFinite(parsed)) return;
+    const next = Math.round(parsed);
+    if (next >= min || clamp) onCommit(Math.max(min, next));
+  };
+
+  const input = (
+    <span title={title} style={{ position: "relative", display: "block", minWidth: 0 }}>
+      <input
+        key={Math.round(value)}
+        type="number"
+        min={min}
+        step={1}
+        defaultValue={Math.round(value)}
+        onChange={(e) => {
+          const next = e.target.value;
+          commit(next, false);
+        }}
+        onBlur={(e) => {
+          commit(e.currentTarget.value);
+          if (e.currentTarget.value.trim() === "" || Number(e.currentTarget.value) < min) {
+            e.currentTarget.value = String(min);
+          }
+        }}
+        style={{ ...inputStyle, minWidth: 0, paddingRight: compact ? 24 : 28 }}
+        aria-label={ariaLabel}
+      />
+      <span style={{ position: "absolute", right: compact ? 7 : 8, top: "50%", transform: "translateY(-50%)", fontSize: compact ? 10 : 11, fontWeight: compact ? 700 : 400, color: "#999", pointerEvents: "none" }}>
+        {suffix}
+      </span>
+    </span>
+  );
+
+  if (!label) return input;
+
+  return (
+    <label style={{ display: "flex", flexDirection: "column", gap: 5, minWidth: 0 }}>
+      <span style={{ fontSize: 11, fontWeight: 700, color: "#8a8a82" }}>{label}</span>
+      {input}
+    </label>
+  );
+}
+
 export function Inspector(props: {
   node: BuilderNode;
   onPatch: (patch: Partial<BuilderNodeData>) => void;
+  onResize: (size: Partial<{ width: number; height: number }>) => void;
   onDelete: () => void;
   onClose: () => void;
 }) {
   const { node, onPatch } = props;
   const data = node.data;
+  const size = readNodeSize(node, { width: 170, height: 88 });
+  const minSize =
+    data.shape === "circle"
+      ? { width: 90, height: 90 }
+      : { width: 110, height: 64 };
 
   function patchText(index: number, value: string) {
     const texts = [...data.texts];
@@ -388,6 +833,14 @@ export function Inspector(props: {
           style={{ width: "100%", height: 32, padding: 0, border: "1px solid #ddd", borderRadius: 6, cursor: "pointer", background: "#fff" }}
         />
       </Field>
+
+      <DimensionFields
+        width={size.width}
+        height={size.height}
+        minWidth={minSize.width}
+        minHeight={minSize.height}
+        onChange={props.onResize}
+      />
 
       <Field label="Text lines">
         <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
@@ -700,4 +1153,3 @@ function CapPicker({ value, onChange }: { value: EndCap; onChange: (v: EndCap) =
     </div>
   );
 }
-

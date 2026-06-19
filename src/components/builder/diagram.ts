@@ -77,6 +77,98 @@ export function isLane(node: { type?: string }): boolean {
   return node.type === "lane";
 }
 
+export type SwimlaneItem = {
+  id: string;
+  label: string;
+  color?: string;
+  width?: number;
+  height?: number;
+};
+
+/** A structured swimlane board: role rows plus vertical stage columns. */
+export type SwimlaneData = {
+  title: string;
+  rows: SwimlaneItem[];
+  stages: SwimlaneItem[];
+  color: string;
+  rowHeaderWidth: number;
+  stageHeaderHeight: number;
+  [key: string]: unknown;
+};
+export type SwimlaneNode = Node<SwimlaneData>;
+
+export const SWIMLANE = {
+  defaultStageWidth: 240,
+  defaultRowHeight: 150,
+  rowHeaderWidth: 164,
+  stageHeaderHeight: 56,
+  minStageWidth: 120,
+  minRowHeight: 92,
+};
+
+export function isSwimlane(node: { type?: string }): boolean {
+  return node.type === "swimlane";
+}
+
+export function swimlaneStageWidth(stage: SwimlaneItem): number {
+  return Math.max(SWIMLANE.minStageWidth, finiteOrDefault(stage.width, SWIMLANE.defaultStageWidth));
+}
+
+export function swimlaneRowHeight(row: SwimlaneItem): number {
+  return Math.max(SWIMLANE.minRowHeight, finiteOrDefault(row.height, SWIMLANE.defaultRowHeight));
+}
+
+export function swimlaneStagesWidth(stages: SwimlaneItem[]): number {
+  return stages.reduce((sum, stage) => sum + swimlaneStageWidth(stage), 0);
+}
+
+export function swimlaneRowsHeight(rows: SwimlaneItem[]): number {
+  return rows.reduce((sum, row) => sum + swimlaneRowHeight(row), 0);
+}
+
+export function swimlaneBoardWidth(data: Pick<SwimlaneData, "rowHeaderWidth" | "stages">): number {
+  return (data.rowHeaderWidth || SWIMLANE.rowHeaderWidth) + swimlaneStagesWidth(data.stages);
+}
+
+export function swimlaneBoardHeight(data: Pick<SwimlaneData, "stageHeaderHeight" | "rows">): number {
+  return (data.stageHeaderHeight || SWIMLANE.stageHeaderHeight) + swimlaneRowsHeight(data.rows);
+}
+
+function finiteOrDefault(value: unknown, fallback: number): number {
+  return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+}
+
+export function createSwimlane(position: { x: number; y: number }): SwimlaneNode {
+  const rows = ["Role 1", "Role 2", "Role 3"].map((label) => ({
+    id: makeId("row"),
+    label,
+    height: SWIMLANE.defaultRowHeight,
+  }));
+  const stages = ["Stage 1", "Stage 2", "Stage 3"].map((label) => ({
+    id: makeId("stage"),
+    label,
+    width: SWIMLANE.defaultStageWidth,
+  }));
+  const data: SwimlaneData = {
+    title: "Swimlane",
+    rows,
+    stages,
+    color: BRAND_BLUE,
+    rowHeaderWidth: SWIMLANE.rowHeaderWidth,
+    stageHeaderHeight: SWIMLANE.stageHeaderHeight,
+  };
+
+  return {
+    id: makeId("swimlane"),
+    type: "swimlane",
+    position,
+    width: swimlaneBoardWidth(data),
+    height: swimlaneBoardHeight(data),
+    data,
+    zIndex: 0,
+  };
+}
+
 /** An uploaded file (PNG/SVG/PDF) shown as a backdrop you can mark up. */
 export type MediaKind = "img" | "pdf";
 export type MediaData = {
@@ -441,8 +533,8 @@ export function layoutDiagram(
   g.setDefaultEdgeLabel(() => ({}));
   g.setGraph({ rankdir: direction, nodesep: 70, ranksep: 90, marginx: 40, marginy: 40 });
 
-  // Lanes, media backdrops and parented nodes are positioned by hand, not dagre.
-  const laidOut = nodes.filter((n) => !isLane(n) && !isMedia(n) && !n.parentId);
+  // Lanes, swimlane boards, media backdrops and parented nodes are positioned by hand, not dagre.
+  const laidOut = nodes.filter((n) => !isLane(n) && !isSwimlane(n) && !isMedia(n) && !n.parentId);
   const sizes = new Map<string, { width: number; height: number }>();
   laidOut.forEach((node) => {
     const size = nodeSize(node);

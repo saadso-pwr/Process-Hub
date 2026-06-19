@@ -6,26 +6,31 @@ import {
   Background,
   Controls,
   MiniMap,
+  ViewportPortal,
   addEdge,
+  getViewportForBounds,
   useNodesState,
   useEdgesState,
   useReactFlow,
   type Connection,
   type Node,
+  type NodeChange,
   type OnSelectionChangeParams,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { getHelperLines } from "./helperLines";
 import { CustomNode } from "./CustomNode";
 import { LaneNode } from "./LaneNode";
+import { SwimlaneNode } from "./SwimlaneNode";
 import { MediaNode } from "./MediaNode";
 import { useUndoRedo } from "./useUndoRedo";
 import { usePresenting } from "@/components/presentation";
 import { Toolbar } from "./Toolbar";
 import { LibraryPanel } from "./LibraryPanel";
 import { AiChat, AiSettings } from "./AiChat";
-import { Inspector, LaneInspector, EdgeInspector, NodePopupCard, AlignBar } from "./Inspectors";
+import { Inspector, LaneInspector, SwimlaneInspector, EdgeInspector, NodePopupCard, AlignBar } from "./Inspectors";
 import {
   FF,
   BRAND_BLUE,
@@ -52,16 +57,21 @@ import {
 import {
   applyCanonical,
   builderToCanonical,
-  createLane,
   createMedia,
   createNode,
+  createSwimlane,
   hasPopup,
   isLane,
   isMedia,
+  isSwimlane,
   autoLayout,
+  makeId,
   parseProcessText,
   coerceCanonical,
+  swimlaneRowHeight,
+  swimlaneStageWidth,
   LANE,
+  SWIMLANE,
   type BuilderEdge,
   type BuilderNode,
   type BuilderNodeData,
@@ -69,6 +79,7 @@ import {
   type LaneData,
   type MediaKind,
   type NodeShape,
+  type SwimlaneData,
 } from "./diagram";
 
 const defaultEdgeOptions = {
@@ -77,18 +88,37 @@ const defaultEdgeOptions = {
   style: { stroke: "#7a7a7a", strokeWidth: 1.8 },
 };
 
-const nodeTypes = { custom: CustomNode, lane: LaneNode, media: MediaNode };
+const nodeTypes = { custom: CustomNode, lane: LaneNode, swimlane: SwimlaneNode, media: MediaNode };
 
-/** Stack order: media backdrop, then lanes (parents before children), then shapes. */
+/** Stack order: media backdrop, then lane boards (parents before children), then shapes. */
 function orderNodes(nodes: Node[]): Node[] {
   const media = nodes.filter((n) => isMedia(n));
-  const lanes = nodes.filter((n) => isLane(n));
-  const rest = nodes.filter((n) => !isMedia(n) && !isLane(n));
-  return [...media, ...lanes, ...rest];
+  const laneBoards = nodes.filter((n) => isLane(n) || isSwimlane(n));
+  const rest = nodes.filter((n) => !isMedia(n) && !isLane(n) && !isSwimlane(n));
+  return [...media, ...laneBoards, ...rest];
+}
+
+function findBand(offset: number, sizes: number[]) {
+  let start = 0;
+  for (let index = 0; index < sizes.length; index += 1) {
+    const size = sizes[index];
+    if (offset < start + size || index === sizes.length - 1) {
+      return { index, start, size };
+    }
+    start += size;
+  }
+  return { index: 0, start: 0, size: sizes[0] ?? 1 };
 }
 
 function BuilderInner() {
-  const { screenToFlowPosition, fitView, getIntersectingNodes, getInternalNode } = useReactFlow();
+  const {
+    screenToFlowPosition,
+    fitView,
+    getIntersectingNodes,
+    getInternalNode,
+    getNodes,
+    getNodesBounds: getFlowNodesBounds,
+  } = useReactFlow();
   const wrapperRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const pendingFolderRef = useRef<string>("Unsorted");
@@ -101,6 +131,14 @@ function BuilderInner() {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [openPopupId, setOpenPopupId] = useState<string | null>(null);
   const [direction, setDirection] = useState<"TB" | "LR">("TB");
+  const [helperH, setHelperH] = useState<number | undefined>(undefined);
+  const [helperV, setHelperV] = useState<number | undefined>(undefined);
+  const clipboard = useRef<{ nodes: Node[]; edges: BuilderEdge[] } | null>(null);
+  const copyRef = useRef<() => void>(() => {});
+  const pasteRef = useRef<() => void>(() => {});
+  const duplicateRef = useRef<() => void>(() => {});
+  const lastPasteOffsetRef = useRef(36);
+  const [hasClipboard, setHasClipboard] = useState(false);
   const isMediaDoc = useMemo(() => nodes.some((n) => isMedia(n)), [nodes]);
 
   const { takeSnapshot, undo, redo, canUndo, canRedo } = useUndoRedo();
@@ -121,6 +159,15 @@ function BuilderInner() {
       } else if ((key === "z" && e.shiftKey) || key === "y") {
         e.preventDefault();
         redo();
+      } else if (key === "c") {
+        e.preventDefault();
+        copyRef.current();
+      } else if (key === "v") {
+        e.preventDefault();
+        pasteRef.current();
+      } else if (key === "d") {
+        e.preventDefault();
+        duplicateRef.current();
       }
     }
     window.addEventListener("keydown", onKey);
@@ -129,7 +176,7 @@ function BuilderInner() {
 
   // Shapes (not lanes/media) currently selected — drives the alignment bar.
   const alignTargets = useMemo(
-    () => nodes.filter((n) => selectedIds.includes(n.id) && !isLane(n) && !isMedia(n)),
+    () => nodes.filter((n) => selectedIds.includes(n.id) && !isLane(n) && !isSwimlane(n) && !isMedia(n)),
     [nodes, selectedIds],
   );
 
@@ -191,11 +238,6 @@ function BuilderInner() {
     if (presenting) window.setTimeout(() => fitView({ padding: 0.12, duration: 400 }), 80);
   }, [presenting, fitView]);
 
-  // Re-fit the diagram when entering presentation mode.
-  useEffect(() => {
-    if (presenting) window.setTimeout(() => fitView({ padding: 0.12, duration: 400 }), 80);
-  }, [presenting, fitView]);
-
   const selectedNode = useMemo(
     () => nodes.find((n) => n.id === selectedId) ?? null,
     [nodes, selectedId],
@@ -229,7 +271,7 @@ function BuilderInner() {
   }, []);
 
   const onNodeClick = useCallback((_e: React.MouseEvent, node: Node) => {
-    if (isLane(node) || isMedia(node)) {
+    if (isLane(node) || isSwimlane(node) || isMedia(node)) {
       setOpenPopupId(null);
       return;
     }
@@ -276,31 +318,35 @@ function BuilderInner() {
     [screenToFlowPosition, setNodes, takeSnapshot],
   );
 
-  /* ── Add a swim lane, stacked beneath any existing lanes ── */
+  /* ── Add a structured swimlane board ── */
   const addLane = useCallback(() => {
+    const rect = wrapperRef.current?.getBoundingClientRect();
+    const center = rect
+      ? screenToFlowPosition({ x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 })
+      : { x: 0, y: 0 };
     takeSnapshot();
-    setNodes((nds) => {
-      const lanes = nds.filter((n) => isLane(n));
-      const bottom = lanes.reduce(
-        (max, l) => Math.max(max, l.position.y + (typeof l.height === "number" ? l.height : LANE.defaultHeight)),
-        0,
-      );
-      const width = wrapperRef.current
-        ? Math.max(720, wrapperRef.current.getBoundingClientRect().width / 1.1)
-        : LANE.defaultWidth;
-      const lane = createLane(lanes.length, width, lanes.length ? bottom + LANE.gap : 0);
-      return orderNodes([...nds, lane]);
+    const board = createSwimlane({
+      x: center.x - (SWIMLANE.rowHeaderWidth + SWIMLANE.defaultStageWidth * 3) / 2,
+      y: center.y - (SWIMLANE.stageHeaderHeight + SWIMLANE.defaultRowHeight * 3) / 2,
     });
+    setNodes((nds) => orderNodes([...nds, board]));
+    setSelectedIds([board.id]);
+    setSelectedId(board.id);
+    setSelectedEdgeId(null);
     window.setTimeout(() => fitView({ padding: 0.15, duration: 400 }), 60);
-  }, [fitView, setNodes, takeSnapshot]);
+  }, [fitView, screenToFlowPosition, setNodes, takeSnapshot]);
 
   /* ── On drop: parent a shape to the lane under it and snap it centre ── */
   const onNodeDragStop = useCallback(
     (_e: React.MouseEvent, node: Node) => {
-      if (isLane(node)) return;
+      if (isLane(node) || isSwimlane(node) || isMedia(node)) return;
 
-      const lane = getIntersectingNodes(node).find((n) => isLane(n));
+      const intersections = getIntersectingNodes(node);
+      const board = intersections.find((n) => isSwimlane(n));
+      const lane = intersections.find((n) => isLane(n));
       const abs = getInternalNode(node.id)?.internals.positionAbsolute ?? node.position;
+      const nodeW =
+        node.measured?.width ?? (typeof node.width === "number" ? node.width : 170);
       const nodeH =
         node.measured?.height ?? (typeof node.height === "number" ? node.height : 88);
 
@@ -308,6 +354,29 @@ function BuilderInner() {
         orderNodes(
           nds.map((n) => {
             if (n.id !== node.id) return n;
+            if (board) {
+              const boardAbs = getInternalNode(board.id)?.internals.positionAbsolute ?? board.position;
+              const data = board.data as SwimlaneData;
+              const rows = data.rows.length ? data.rows : [{ id: "row_fallback", label: "Role" }];
+              const stages = data.stages.length ? data.stages : [{ id: "stage_fallback", label: "Stage" }];
+              const rowHeaderWidth = data.rowHeaderWidth || SWIMLANE.rowHeaderWidth;
+              const stageHeaderHeight = data.stageHeaderHeight || SWIMLANE.stageHeaderHeight;
+              const stageWidths = stages.map(swimlaneStageWidth);
+              const rowHeights = rows.map(swimlaneRowHeight);
+              const centreX = abs.x + nodeW / 2 - boardAbs.x;
+              const centreY = abs.y + nodeH / 2 - boardAbs.y;
+              const col = findBand(centreX - rowHeaderWidth, stageWidths);
+              const row = findBand(centreY - stageHeaderHeight, rowHeights);
+              return {
+                ...n,
+                parentId: board.id,
+                extent: "parent" as const,
+                position: {
+                  x: rowHeaderWidth + col.start + Math.max(12, (col.size - nodeW) / 2),
+                  y: stageHeaderHeight + row.start + Math.max(12, (row.size - nodeH) / 2),
+                },
+              };
+            }
             if (lane) {
               const laneAbs = getInternalNode(lane.id)?.internals.positionAbsolute ?? lane.position;
               const laneH =
@@ -582,6 +651,28 @@ function BuilderInner() {
     [selectedId, setNodes, takeSnapshot],
   );
 
+  const resizeSelected = useCallback(
+    (size: Partial<{ width: number; height: number }>) => {
+      if (!selectedId) return;
+      const width = typeof size.width === "number" ? Math.max(1, Math.round(size.width)) : undefined;
+      const height = typeof size.height === "number" ? Math.max(1, Math.round(size.height)) : undefined;
+      if (width === undefined && height === undefined) return;
+      takeSnapshot("dimensions");
+      setNodes((nds) =>
+        nds.map((n) =>
+          n.id === selectedId
+            ? {
+                ...n,
+                ...(width !== undefined ? { width } : {}),
+                ...(height !== undefined ? { height } : {}),
+              }
+            : n,
+        ),
+      );
+    },
+    [selectedId, setNodes, takeSnapshot],
+  );
+
   const deleteSelected = useCallback(() => {
     if (!selectedId) return;
     takeSnapshot();
@@ -677,6 +768,192 @@ function BuilderInner() {
     [selectedIds, setNodes, takeSnapshot],
   );
 
+  /* ── Smart alignment guides while dragging a top-level node ── */
+  const onNodesChangeGuided = useCallback(
+    (changes: NodeChange[]) => {
+      const ch = changes[0];
+      if (changes.length === 1 && ch.type === "position" && ch.dragging && ch.position) {
+        const node = nodes.find((n) => n.id === ch.id);
+        if (node && !node.parentId && !isLane(node) && !isSwimlane(node) && !isMedia(node)) {
+          const lines = getHelperLines(ch, nodes);
+          if (lines.snapPosition.x !== undefined) ch.position.x = lines.snapPosition.x;
+          if (lines.snapPosition.y !== undefined) ch.position.y = lines.snapPosition.y;
+          setHelperV(lines.vertical);
+          setHelperH(lines.horizontal);
+        }
+      } else if (helperH !== undefined || helperV !== undefined) {
+        setHelperH(undefined);
+        setHelperV(undefined);
+      }
+      onNodesChange(changes);
+    },
+    [nodes, onNodesChange, helperH, helperV],
+  );
+
+  const clearGuides = useCallback(() => {
+    setHelperH(undefined);
+    setHelperV(undefined);
+  }, []);
+
+  /* ── Copy / paste / duplicate ── */
+  const copySelection = useCallback(() => {
+    const sel = getNodes().filter((n) => selectedIds.includes(n.id) && !isLane(n) && !isSwimlane(n) && !isMedia(n));
+    if (!sel.length) return null;
+    const ids = new Set(sel.map((n) => n.id));
+    // Store absolute positions so pasted copies are independent of any lane.
+    const nodesCopy = sel.map((n) => {
+      const abs = getInternalNode(n.id)?.internals.positionAbsolute ?? n.position;
+      return { ...n, position: { ...abs }, parentId: undefined, extent: undefined };
+    });
+    const edgesCopy = (edges as BuilderEdge[]).filter((e) => ids.has(e.source) && ids.has(e.target));
+    return { nodes: nodesCopy, edges: edgesCopy };
+  }, [edges, getInternalNode, getNodes, selectedIds]);
+
+  const pasteClip = useCallback(
+    (clip: { nodes: Node[]; edges: BuilderEdge[] }, offset = 36) => {
+      if (!clip.nodes.length) return;
+      takeSnapshot();
+      const idMap = new Map<string, string>();
+      const newNodes = clip.nodes.map((n) => {
+        const id = makeId("n");
+        idMap.set(n.id, id);
+        return {
+          ...n,
+          id,
+          position: { x: n.position.x + offset, y: n.position.y + offset },
+          selected: true,
+        } as Node;
+      });
+      const newEdges = clip.edges.map((e) => ({
+        ...e,
+        id: makeId("e"),
+        source: idMap.get(e.source) ?? e.source,
+        target: idMap.get(e.target) ?? e.target,
+      }));
+      setNodes((nds) => orderNodes([...nds.map((n) => ({ ...n, selected: false })), ...newNodes]));
+      setEdges((eds) => [...eds, ...newEdges]);
+      setSelectedIds(newNodes.map((n) => n.id));
+      setSelectedId(newNodes.length === 1 ? newNodes[0].id : null);
+      setSelectedEdgeId(null);
+      setOpenPopupId(null);
+    },
+    [setEdges, setNodes, takeSnapshot],
+  );
+
+  const copy = useCallback(() => {
+    const clip = copySelection();
+    if (clip) {
+      clipboard.current = clip;
+      lastPasteOffsetRef.current = 36;
+      setHasClipboard(true);
+    }
+  }, [copySelection]);
+
+  const paste = useCallback(() => {
+    if (!clipboard.current) return;
+    pasteClip(clipboard.current, lastPasteOffsetRef.current);
+    lastPasteOffsetRef.current += 18;
+  }, [pasteClip]);
+
+  const duplicate = useCallback(() => {
+    const clip = copySelection();
+    if (clip) {
+      pasteClip(clip);
+      clipboard.current = clip;
+      lastPasteOffsetRef.current = 54;
+      setHasClipboard(true);
+    }
+  }, [copySelection, pasteClip]);
+
+  // Keep the keyboard-shortcut refs pointing at the latest handlers.
+  useEffect(() => {
+    copyRef.current = copy;
+    pasteRef.current = paste;
+    duplicateRef.current = duplicate;
+  }, [copy, paste, duplicate]);
+
+  /* ── Export ── */
+  const downloadUrl = (url: string, filename: string, revoke = false) => {
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    a.rel = "noopener";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    if (revoke) window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
+
+  const exportAs = useCallback(
+    async (format: "png" | "svg" | "pdf" | "json") => {
+      const safe = (title.trim() || "diagram").replace(/[^\w.-]+/g, "_");
+
+      if (format === "json") {
+        const doc = { nodes: getNodes(), edges: edges as BuilderEdge[] };
+        const url = URL.createObjectURL(new Blob([JSON.stringify(doc, null, 2)], { type: "application/json" }));
+        downloadUrl(url, `${safe}.json`, true);
+        setGenNote(`Exported ${safe}.json.`);
+        return;
+      }
+
+      const flowNodes = getNodes();
+      if (!flowNodes.length) {
+        setGenNote("Nothing to export yet.");
+        return;
+      }
+      // Deselect so handles/selection rings don't appear in the capture.
+      setSelectedId(null);
+      setSelectedEdgeId(null);
+      setSelectedIds([]);
+      setOpenPopupId(null);
+      await new Promise((r) => window.setTimeout(r, 60));
+
+      const el = wrapperRef.current?.querySelector(".react-flow__viewport") as HTMLElement | null;
+      if (!el) {
+        setGenNote("Export failed: canvas was not found.");
+        return;
+      }
+      const PAD = 40;
+      const bounds = getFlowNodesBounds(flowNodes);
+      const width = Math.ceil(bounds.width + PAD * 2);
+      const height = Math.ceil(bounds.height + PAD * 2);
+      const vp = getViewportForBounds(bounds, width, height, 0.2, 2, PAD / Math.max(bounds.width, bounds.height, 1));
+      const opts = {
+        backgroundColor: "#ffffff",
+        width,
+        height,
+        pixelRatio: 2,
+        style: {
+          width: `${width}px`,
+          height: `${height}px`,
+          transform: `translate(${vp.x}px, ${vp.y}px) scale(${vp.zoom})`,
+        },
+      };
+
+      try {
+        const { toPng, toSvg } = await import("html-to-image");
+        if (format === "svg") {
+          const dataUrl = await toSvg(el, opts);
+          downloadUrl(dataUrl, `${safe}.svg`);
+        } else {
+          const dataUrl = await toPng(el, opts);
+          if (format === "png") {
+            downloadUrl(dataUrl, `${safe}.png`);
+          } else {
+            const { jsPDF } = await import("jspdf");
+            const pdf = new jsPDF({ orientation: width >= height ? "landscape" : "portrait", unit: "px", format: [width, height] });
+            pdf.addImage(dataUrl, "PNG", 0, 0, width, height);
+            pdf.save(`${safe}.pdf`);
+          }
+        }
+        setGenNote(`Exported ${safe}.${format}.`);
+      } catch {
+        setGenNote("Export failed.");
+      }
+    },
+    [edges, getFlowNodesBounds, getNodes, title],
+  );
+
   return (
     <div style={{ display: "flex", height: "100%", fontFamily: FF }}>
       <input
@@ -722,8 +999,14 @@ function BuilderInner() {
             onAi={() => setAiOpen(true)}
             onUndo={undo}
             onRedo={redo}
+            onCopy={copy}
+            onPaste={paste}
+            onDuplicate={duplicate}
             canUndo={canUndo}
             canRedo={canRedo}
+            canCopy={alignTargets.length > 0}
+            canPaste={hasClipboard}
+            onExport={exportAs}
             note={genNote}
           />
         )}
@@ -753,14 +1036,17 @@ function BuilderInner() {
               nodes={nodes}
               edges={edges}
               nodeTypes={nodeTypes}
-              onNodesChange={onNodesChange}
+              onNodesChange={onNodesChangeGuided}
               onEdgesChange={onEdgesChange}
               onConnect={onConnect}
               onSelectionChange={onSelectionChange}
               onNodeClick={onNodeClick}
               onPaneClick={onPaneClick}
               onNodeDragStart={() => takeSnapshot("drag")}
-              onNodeDragStop={onNodeDragStop}
+              onNodeDragStop={(e, n) => {
+                clearGuides();
+                onNodeDragStop(e, n);
+              }}
               defaultEdgeOptions={defaultEdgeOptions}
               deleteKeyCode={["Backspace", "Delete"]}
               selectionKeyCode="Shift"
@@ -785,6 +1071,36 @@ function BuilderInner() {
                   onClose={() => setOpenPopupId(null)}
                 />
               )}
+              {(helperV !== undefined || helperH !== undefined) && (
+                <ViewportPortal>
+                  {helperV !== undefined && (
+                    <div
+                      style={{
+                        position: "absolute",
+                        left: helperV,
+                        top: -100000,
+                        width: 1,
+                        height: 200000,
+                        background: "#ec4899",
+                        pointerEvents: "none",
+                      }}
+                    />
+                  )}
+                  {helperH !== undefined && (
+                    <div
+                      style={{
+                        position: "absolute",
+                        top: helperH,
+                        left: -100000,
+                        height: 1,
+                        width: 200000,
+                        background: "#ec4899",
+                        pointerEvents: "none",
+                      }}
+                    />
+                  )}
+                </ViewportPortal>
+              )}
             </ReactFlow>
             <EdgeMarkerDefs />
 
@@ -797,10 +1113,19 @@ function BuilderInner() {
             )}
           </div>
 
-          {presenting ? null : selectedNode && isLane(selectedNode) ? (
+          {presenting ? null : selectedNode && isSwimlane(selectedNode) ? (
+            <SwimlaneInspector
+              node={selectedNode as Node<SwimlaneData>}
+              onPatch={(patch) => patchSelected(patch)}
+              onResize={resizeSelected}
+              onDelete={deleteSelected}
+              onClose={() => setSelectedId(null)}
+            />
+          ) : selectedNode && isLane(selectedNode) ? (
             <LaneInspector
               node={selectedNode as Node<LaneData>}
               onPatch={(patch) => patchSelected(patch)}
+              onResize={resizeSelected}
               onDelete={deleteSelected}
               onClose={() => setSelectedId(null)}
             />
@@ -808,6 +1133,7 @@ function BuilderInner() {
             <Inspector
               node={selectedNode as BuilderNode}
               onPatch={patchSelected}
+              onResize={resizeSelected}
               onDelete={deleteSelected}
               onClose={() => setSelectedId(null)}
             />
